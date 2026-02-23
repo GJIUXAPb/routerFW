@@ -15,9 +15,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup PowerShell
-        uses: actions/setup-powershell@v1
-
+      # pwsh pre-installed on ubuntu-latest; actions/setup-powershell does not exist
       - name: Refresh CHANGELOG from releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
