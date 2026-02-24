@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
     Выгружает тексты GitHub-релизов по тегам в CHANGELOG.md в корне проекта.
-# file: system/get-git.ps1
+# file: system/get-git.ps1 v1.1
 .DESCRIPTION
-    Получает список тегов (git tag -l --sort=creatordate), для каждого тега
-    вызывает gh release view и дописывает вывод в CHANGELOG.md.
+    Обновляет теги с remote (git fetch --tags), затем получает список тегов
+    (git tag -l --sort=creatordate), для каждого вызывает gh release view
+    и дописывает вывод в CHANGELOG.md.
     Требует: git, gh CLI, запуск из корня репозитория или из system/.
 .EXAMPLE
     .\system\get-git.ps1
@@ -19,6 +20,12 @@ $ChangelogPath = Join-Path $ProjectRoot "CHANGELOG.md"
 
 # Запуск из корня репозитория
 $null = Set-Location $ProjectRoot
+
+# Обновить теги с remote (чтобы учесть новые релизы)
+$fetchResult = git fetch --tags 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Предупреждение: не удалось обновить теги (git fetch --tags). Используются локальные теги." -ForegroundColor Yellow
+}
 
 $header = @"
 # RouterFW — тексты релизов (по тегам)
