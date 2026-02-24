@@ -3,7 +3,7 @@
 # file: system/create_profile.sh
 # =========================================================
 #  OpenWrt/ImmortalWrt Universal Profile Creator
-#  Bash Version 2.30 (Mirrors fix)
+#  Bash Version 2.40 (fix device detection)
 # =========================================================
 
 # --- ЦВЕТА ---
@@ -378,7 +378,9 @@ SRC_CORES="safe"
 #    If a package fails to install via SRC_PACKAGES, you can force-enable it here.
 # CONFIG_PACKAGE_kmod-usb-net-rndis=y
 
-SRC_EXTRA_CONFIG=''
+SRC_EXTRA_CONFIG='CONFIG_TARGET_${TARGET}=y
+CONFIG_TARGET_${TARGET}_${SUBTARGET}=y
+CONFIG_TARGET_${TARGET}_${SUBTARGET}_DEVICE_${MODEL_ID}=y'
 
 EOF
             echo -e "\n${C_GRN}[OK] ${L[Step6_Saved]} $conf_path${C_RST}"

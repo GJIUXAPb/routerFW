@@ -433,9 +433,8 @@ else
     if echo "\$SRC_EXTRA_CONFIG" | grep -q "CONFIG_TARGET_.*_DEVICE_"; then
         echo "[CONFIG] Device explicitly set in EXTRA_CONFIG. Skipping auto-detection."
     else
-        # Заменяем дефисы на подчеркивания, как делает OpenWrt build system
-        CLEAN_PROFILE=\$(echo "\$TARGET_PROFILE" | tr '-' '_')
-        echo "CONFIG_TARGET_\${SRC_TARGET}_\${SRC_SUBTARGET}_DEVICE_\$CLEAN_PROFILE=y" >> .config
+        # Use TARGET_PROFILE as-is: OpenWrt Kconfig device IDs use hyphens (e.g. tplink_tl-wr1043nd-v2)
+        echo "CONFIG_TARGET_\${SRC_TARGET}_\${SRC_SUBTARGET}_DEVICE_\$TARGET_PROFILE=y" >> .config
     fi
     for pkg in \$SRC_PACKAGES; do
         if [[ "\$pkg" == -* ]]; then
