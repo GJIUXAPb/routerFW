@@ -1,5 +1,5 @@
 #!/bin/bash
-# file: system/src_builder.sh v1.8
+# file: system/src_builder.sh v1.9
 set -e
 
 # 1. Исправление прав (выполняется под root)
@@ -201,9 +201,8 @@ echo "CONFIG_TARGET_${SRC_TARGET}=y" >> .config
     if echo "$SRC_EXTRA_CONFIG" | grep -q "CONFIG_TARGET_.*_DEVICE_"; then
         echo "[CONFIG] Device selection delegated to SRC_EXTRA_CONFIG."
     else
-        # Fallback to standard logic (ensure underscores)
-        CLEAN_PROFILE=$(echo "$TARGET_PROFILE" | tr '-' '_')
-        echo "CONFIG_TARGET_${SRC_TARGET}_${SRC_SUBTARGET}_DEVICE_${CLEAN_PROFILE}=y" >> .config
+        # Fallback: use TARGET_PROFILE as-is (OpenWrt Kconfig device IDs use hyphens, e.g. tplink_tl-wr1043nd-v2)
+        echo "CONFIG_TARGET_${SRC_TARGET}_${SRC_SUBTARGET}_DEVICE_${TARGET_PROFILE}=y" >> .config
     fi
     for pkg in $SRC_PACKAGES; do
         [[ "$pkg" == -* ]] && echo "# CONFIG_PACKAGE_${pkg#-} is not set" >> .config || echo "CONFIG_PACKAGE_$pkg=y" >> .config

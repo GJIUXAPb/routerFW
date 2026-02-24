@@ -7,7 +7,7 @@
 
 # routerFW — Process Diagrams
 
-> Version: 4.43. English diagram set.
+> Version: 4.44. English diagram set.
 >
 > Text: [ARCHITECTURE_en.md](ARCHITECTURE_en.md) · RU diagrams: [ARCHITECTURE_diagram_ru.md](ARCHITECTURE_diagram_ru.md)
 
@@ -90,6 +90,35 @@ flowchart TD
     CHOICE --> |invalid| ERR[L_ERR_INPUT\nsleep 1]
     ERR --> MENU
 ```
+
+### Command-line interface (Windows)
+
+Running with arguments runs the chosen action without entering the interactive menu (after init and profile list build).
+
+**Build mode (Image Builder / Source):**
+- **Optional prefix before command:** `ib` or `image` = Image Builder, `src` or `source` = Source Builder. No prefix = **Image Builder** by default.
+- **Build IB profile 1:** `_Builder.bat ib build 1` or `_Builder.bat build 1` (default is IB). On Linux use `./_Builder.sh` instead of `_Builder.bat`.
+- **Build Source profile 1:** `_Builder.bat src build 1`.
+- **Build all in chosen mode:** `_Builder.bat ib build-all`, `_Builder.bat src build-all`.
+To choose mode in one command, use the `ib`/`src` prefix. Mode toggle (key **M** in the menu) is available only in the interactive menu.
+
+**Interface language:** `--lang=RU` / `--lang=EN` or `-l RU` / `-l EN` (any position). No key = auto-detect.
+
+| Command | Short | Arguments | Action |
+|--------|--------|-----------|--------|
+| `build` | `b` | \<id\> — number or profile name | Build one profile |
+| `build-all` | `a`, `all` | — | Build all (mode: prefix ib/src or default IB) |
+| `edit` | `e` | [id] | Profile editor (no id = interactive choice from list) |
+| `menuconfig` | `k` | \<id\> | Menuconfig (SOURCE only) |
+| `import` | `i` | \<id\> | Import IPK (SOURCE only) |
+| `wizard` | `w` | — | Profile creation wizard |
+| `clean` | `c` | [type] [target] | Clean: type 1–6 (SRC) or 1–3 (IMG), 9=prune; target = number or A |
+| `state` | `s` | — | Profile table with flags (F,P,S,M,H,X,OI,OS) |
+| `help` | `-h`, `--help` | — | Help and exit |
+
+**Positional:** `_Builder.bat 2` is treated as `build 2` (default mode — IB). Commands are case-insensitive.
+
+**Examples:** `_Builder.bat build 1`, `_Builder.bat ib build 1`, `_Builder.bat src build 1`, `_Builder.bat ib build-all`, `_Builder.bat clean 2 3`, `_Builder.bat edit myrouter`, `_Builder.bat --help`
 
 ---
 

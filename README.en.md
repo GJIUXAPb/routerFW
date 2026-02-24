@@ -58,6 +58,41 @@ The main menu features a "surgical" resource panel **`[F P S M H X | OI OS]`** f
 
 ---
 
+## ⌨️ Command-Line Interface (CLI)
+
+You can run the builder with arguments **without entering the interactive menu** (Windows: `_Builder.bat`, Linux: `_Builder.sh`).
+
+### Interface language
+*   **`--lang=RU`** / **`--lang=EN`** or **`-l RU`** / **`-l EN`** — force interface language (any position on the command line). Without the key — auto-detection from the system.
+
+### Build mode (Image Builder / Source)
+*   **Prefix before command:** `ib` or `image` — Image Builder, `src` or `source` — Source Builder. Without a prefix, **Image Builder** is used by default.
+*   **Build profile 1 in IB:** `_Builder.bat build 1` or `_Builder.bat ib build 1`
+*   **Build profile 1 in Source:** `_Builder.bat src build 1`
+*   **Build all:** `_Builder.bat ib build-all`, `_Builder.bat src build-all`
+
+### Main commands
+
+| Command | Short | Arguments | Action |
+|--------|--------|-----------|--------|
+| `build` | `b` | profile number or name | Build one profile |
+| `build-all` | `a`, `all` | — | Build all profiles |
+| `edit` | `e` | [id] | Profile editor |
+| `menuconfig` | `k` | \<id\> | Menuconfig (Source only) |
+| `import` | `i` | \<id\> | Import IPK (Source only) |
+| `wizard` | `w` | — | Profile creation wizard |
+| `clean` | `c` | [type] [target] | Clean (type 1–6 SRC / 1–3 IMG, 9=prune) |
+| `state` | `s` | — | Profile table with flags (F,P,S,M,H,X,OI,OS) |
+| `help` | `-h`, `--help` | — | Help and exit |
+
+**Positional:** `_Builder.bat 2` = build profile #2 (default mode — IB). Commands are case-insensitive.
+
+**Examples:** `_Builder.bat --lang=EN build 1`, `_Builder.bat ib build-all`, `_Builder.bat clean 2 3`, `_Builder.bat --help`
+
+For more details, see [Architecture diagrams — Command-line section](docs/ARCHITECTURE_diagram_en.md#command-line-interface-windows).
+
+---
+
 ## 📖 Documentation and Training
 
 An extended knowledge base has been created for the project to help you go from beginner to pro.

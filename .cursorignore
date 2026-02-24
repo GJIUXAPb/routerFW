@@ -1,0 +1,29 @@
+# routerFW - Cursor index/context exclusions (aligns with .gitignore + project rules)
+
+# === TOXIC: never read (base64 self-extracting payloads) ===
+_unpacker.bat
+_unpacker.sh
+
+# === Private / user data (gitignored, do not index) ===
+/custom_files/
+/custom_packages/
+/src_packages/
+/custom_patches/
+
+# === Build artifacts (large, not useful for code analysis) ===
+/firmware_output/
+*.bin
+*.img
+*.ipk
+
+# === Test environments (unpacked dist snapshots, not source of truth) ===
+/nl_test/
+/nw_test/
+
+# === Other gitignored ===
+/bck/
+/reverse/
+debug.md
+tester_log_*.md
+tester_tmp_*_out.txt
+.docker_tmp/

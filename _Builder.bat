@@ -1,15 +1,17 @@
 @echo off
 rem file: _Builder.bat
+rem CLI: --lang=RU|EN или -l RU|EN — язык. [ib|src] — режим. build[b], build-all[a|all], edit[e], menuconfig[k], import[i], wizard[w], clean[c], help[-h|--help]. Примеры: --lang=EN build 1, ib build 1.
 
-set "VER_NUM=4.43"
+set "VER_NUM=4.44"
 
 setlocal enabledelayedexpansion
-:: Фиксируем размер окна: 120 символов в ширину, 40 в высоту
-mode con: cols=120 lines=40
+:: Фиксируем размер окна: 120 символов в ширину, 40 в высоту (пропуск при ROUTERFW_NO_CLS — тестер)
+if not defined ROUTERFW_NO_CLS mode con: cols=120 lines=40
 :: Отключаем мигающий курсор (через PowerShell, так как в Batch нет нативного способа)
 rem powershell -command "$ind = [System.Console]::CursorVisible; if($ind){[System.Console]::CursorVisible=$false}" 2>nul
-cls
+if not defined ROUTERFW_NO_CLS cls
 chcp 65001 >nul
+:: Кодовая страница UTF-8 нужна для корректного вывода строк из system/lang/*.env (тестер задаёт ROUTERFW_NO_CLS, но вывод должен быть читаемым)
 :: Настройка ANSI цветов
 for /F %%a in ('echo prompt $E ^| cmd') do set "ESC=%%a"
 
@@ -34,9 +36,53 @@ set "C_KEY=%ESC%[93m"
 :: Alias (псевдоним C_VAL): Для успешных операций
 set "C_OK=%C_VAL%"
 
+:: === CLI: ключ языка в любой позиции; вырезаем его и собираем эффективный список аргументов ===
+:: Только ключ языка (без других аргументов) = меню с принудительным языком. Иначе = CLI, ключ вырезается.
+set "la1=%~1"
+set "la2=%~2"
+set "la3=%~3"
+set "la4=%~4"
+set "la5=%~5"
+set "la6=%~6"
+set "la7=%~7"
+set "la8=%~8"
+set "la9=%~9"
+set "skip1=0" & set "skip2=0" & set "skip3=0" & set "skip4=0" & set "skip5=0" & set "skip6=0" & set "skip7=0" & set "skip8=0" & set "skip9=0"
+for %%P in (1 2 3 4 5 6 7 8 9) do (
+    set "lat=!la%%P!"
+    if "!lat:~0,7!"=="--lang=" (
+        set "skip%%P=1"
+        if /i "!lat:~7!"=="RU" set "FORCE_LANG=RU"
+        if /i "!lat:~7!"=="EN" set "FORCE_LANG=EN"
+        if /i not "!lat:~7!"=="RU" if /i not "!lat:~7!"=="EN" set "CLI_LANG_ERROR=1"
+    )
+)
+call :cli_lang_skip 1 2
+call :cli_lang_skip 2 3
+call :cli_lang_skip 3 4
+call :cli_lang_skip 4 5
+call :cli_lang_skip 5 6
+call :cli_lang_skip 6 7
+call :cli_lang_skip 7 8
+call :cli_lang_skip 8 9
+goto :cli_lang_done
+:cli_lang_skip
+set "curr=!la%1!"
+set "next=!la%2!"
+if /i "!curr!"=="--lang" if /i "!next!"=="RU" set "FORCE_LANG=RU" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="--lang" if /i "!next!"=="EN" set "FORCE_LANG=EN" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="-l"     if /i "!next!"=="RU" set "FORCE_LANG=RU" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="-l"     if /i "!next!"=="EN" set "FORCE_LANG=EN" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="--lang" if "!next!"=="" set "skip%1=1" & set "CLI_LANG_ERROR=1"
+if /i "!curr!"=="--lang" if not "!next!"=="" if /i not "!next!"=="RU" if /i not "!next!"=="EN" set "skip%1=1" & set "skip%2=1" & set "CLI_LANG_ERROR=1"
+if /i "!curr!"=="-l"     if "!next!"=="" set "skip%1=1" & set "CLI_LANG_ERROR=1"
+if /i "!curr!"=="-l"     if not "!next!"=="" if /i not "!next!"=="RU" if /i not "!next!"=="EN" set "skip%1=1" & set "skip%2=1" & set "CLI_LANG_ERROR=1"
+goto :eof
+:cli_lang_done
+
 :: === ЯЗЫКОВОЙ МОДУЛЬ ===
 :: ТУМБЛЕR: AUTO (детект), RU (всегда рус), EN (всегда англ)
-set "FORCE_LANG=AUTO"
+if not defined FORCE_LANG set "FORCE_LANG=AUTO"
 set "SYS_LANG=EN"
 set /a "ru_score=0"
 :: Bootstrap — dict not yet available; hardcoded strings are intentional
@@ -80,9 +126,10 @@ for /f "usebackq eol=# tokens=1,* delims==" %%k in ("%LANG_FILE%") do (
     set "_v=!_v:{C_OK}=%C_OK%!"
     set "%%k=!_v!"
 )
+if defined CLI_LANG_ERROR echo !L_CLI_ERR_LANG! & exit /b 1
 :: Финальный вывод вердикта
 if /i "%FORCE_LANG%"=="AUTO" (
-    echo %C_LBL%[INIT]%C_RST% %L_VERDICT% %C_VAL%%L_LANG_NAME%%C_RST% (Score %ru_score%/10)
+    echo %C_LBL%[INIT]%C_RST% %L_VERDICT% %C_VAL%%L_LANG_NAME%%C_RST% (Score %ru_score%/10^)
 ) else (
     echo %C_LBL%[INIT]%C_RST% Lang set: %C_VAL%FORCE %FORCE_LANG%%C_RST%
 )
@@ -180,26 +227,74 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "}"
 echo.
 
+:: === CLI: эффективный список аргументов (без ключа языка); префикс режима (ib/src), команда ===
+set "p1=" & set "p2=" & set "p3=" & set "p4=" & set "p5="
+set "idx=0"
+for %%P in (1 2 3 4 5 6 7 8 9) do (
+    if "!skip%%P!"=="0" (
+        set /a idx+=1
+        set "p!idx!=!la%%P!"
+    )
+)
+if not "!p1!"=="" (
+    set "mode_shift=0"
+    if /i "!p1!"=="ib"     set "BUILD_MODE=IMAGE"  & set "mode_shift=1"
+    if /i "!p1!"=="image"  set "BUILD_MODE=IMAGE"  & set "mode_shift=1"
+    if /i "!p1!"=="src"    set "BUILD_MODE=SOURCE" & set "mode_shift=1"
+    if /i "!p1!"=="source" set "BUILD_MODE=SOURCE" & set "mode_shift=1"
+    if !mode_shift!==1 (
+        set "c1=!p2!"
+        set "c2=!p3!"
+        set "c3=!p4!"
+    ) else (
+        set "c1=!p1!"
+        set "c2=!p2!"
+        set "c3=!p3!"
+    )
+    if /i "!c1!"=="build"     set "CLI_CMD=BUILD"     & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="b"         set "CLI_CMD=BUILD"     & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="build-all" set "CLI_CMD=BUILD_ALL" & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="all"       set "CLI_CMD=BUILD_ALL" & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="a"         set "CLI_CMD=BUILD_ALL" & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="edit"       set "CLI_CMD=EDIT"      & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="e"         set "CLI_CMD=EDIT"      & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="menuconfig" set "CLI_CMD=MENUCONFIG" & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="k"         set "CLI_CMD=MENUCONFIG" & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="import"     set "CLI_CMD=IMPORT"    & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="i"         set "CLI_CMD=IMPORT"    & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="wizard"     set "CLI_CMD=WIZARD"    & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="w"         set "CLI_CMD=WIZARD"    & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="clean"      set "CLI_CMD=CLEAN"     & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="c"         set "CLI_CMD=CLEAN"     & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="state"      set "CLI_CMD=STATE"    & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="s"         set "CLI_CMD=STATE"    & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="help"       set "CLI_CMD=HELP"     & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="-h"         set "CLI_CMD=HELP"     & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="--help"     set "CLI_CMD=HELP"     & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if not defined CLI_CMD set "CLI_CMD=BUILD" & set "CLI_ARG1=!c1!" & set "CLI_ARG2=!c2!"
+)
+
 :MENU
-cls
+if not defined ROUTERFW_NO_CLS cls
 :: Очистка массива профилей
 for /F "tokens=1 delims==" %%a in ('set profile[ 2^>nul') do set "%%a="
 set "count=0"
 
 :: 1. ЛОГИКА РЕЖИМА И ЯЗЫКА
 if "%BUILD_MODE%"=="IMAGE" (
-    color 0B
+    if not defined ROUTERFW_NO_CLS color 0B
     set "MODE_TITLE=!L_MODE_IMG!"
     set "OPPOSITE_MODE=SOURCE"
     set "TARGET_VAR=IMAGEBUILDER_URL"
 ) else (
-    color 0D
+    if not defined ROUTERFW_NO_CLS color 0D
     set "MODE_TITLE=!L_MODE_SRC!"
     set "OPPOSITE_MODE= IMAGE"
     set "TARGET_VAR=SRC_BRANCH"
 )
 
-:: 2. ОТРИСОВКА ЗАГОЛОВКА
+:: 2. ОТРИСОВКА ЗАГОЛОВКА (в CLI не выводим)
+if not defined CLI_CMD (
 echo !C_GRY!┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐!C_RST!
 echo   !C_VAL!OpenWrt FW Builder !VER_NUM!!C_RST! [!C_VAL!!SYS_LANG!!C_RST!]          !C_LBL!https://github.com/iqubik/routerFW!C_RST!
 echo   !L_CUR_MODE!: [!C_VAL!!MODE_TITLE!!C_RST!]
@@ -207,6 +302,7 @@ echo !C_GRY!└─────────────────────�
 echo.
 echo    !C_GRY! ID   !H_PROF!                                      !H_ARCH!          !H_RES!!C_RST!
 echo    !C_GRY!────────────────────────────────────────────────────────────────────────────────────────────────────────────────!C_RST!
+)
 
 :: Очистка массива профилей
 for /F "tokens=1 delims==" %%a in ('set profile[ 2^>nul') do set "%%a="
@@ -218,8 +314,10 @@ set "count=0"
 powershell -NoProfile -Command "Get-ChildItem 'profiles\*.conf' | ForEach-Object { $f=$_.FullName; $c=[IO.File]::ReadAllText($f); $changed=$false; if(($c -match '(?m)^PKGS=' -or $c -match '(?m)^#\s*PKGS=') -and $c -notmatch '(?m)^#?\s*IMAGE_PKGS='){ $c=$c -replace '(?m)^PKGS=','IMAGE_PKGS='; $c=$c -replace '(?m)^(#\s*)PKGS=','\${1}IMAGE_PKGS='; $c=$c -replace '\$PKGS\b','`$IMAGE_PKGS'; $changed=$true }; if(($c -match '(?m)^EXTRA_IMAGE_NAME=' -or $c -match '(?m)^#\s*EXTRA_IMAGE_NAME=') -and $c -notmatch '(?m)^#?\s*IMAGE_EXTRA_NAME='){ $c=$c -replace '(?m)^EXTRA_IMAGE_NAME=','IMAGE_EXTRA_NAME='; $c=$c -replace '(?m)^(#\s*)EXTRA_IMAGE_NAME=','\${1}IMAGE_EXTRA_NAME='; $changed=$true }; if($changed){ [IO.File]::WriteAllText($f,$c,[Text.UTF8Encoding]::new($false)) } }"
 
 :: 3. ЦИКЛ СКАНИРОВАНИЯ (С поддержкой словаря)
+if not defined CLI_CMD (
 echo    !C_LBL!!L_PROFILES!:!C_RST!
 echo.
+)
 for %%f in (profiles\*.conf) do (
     set /a count+=1
     set "profile[!count!]=%%~nxf"
@@ -265,9 +363,11 @@ for %%f in (profiles\*.conf) do (
     set "tmp_arch=!this_arch!                    "
     set "n_arch=!tmp_arch:~0,20!"
 
-    :: ВЫВОД СТРОКИ
-    echo    !C_GRY![!C_KEY!!id_pad!!C_GRY!]!C_RST! !n_name! !C_LBL!!n_arch!!C_RST! !C_GRY![!st_f!!st_p!!st_s!!st_m!!st_h!!st_pt! !C_RST!^|!C_GRY! !st_oi! !st_os!]!C_RST!
+    :: ВЫВОД СТРОКИ (в CLI режиме таблицу не рисуем)
+    if not defined CLI_CMD echo    !C_GRY![!C_KEY!!id_pad!!C_GRY!]!C_RST! !n_name! !C_LBL!!n_arch!!C_RST! !C_GRY![!st_f!!st_p!!st_s!!st_m!!st_h!!st_pt! !C_RST!^|!C_GRY! !st_oi! !st_os!]!C_RST!
 )
+
+if defined CLI_CMD goto CLI_DISPATCH
 
 :: 4. ПОДВАЛ
 set "b_all=!L_BTN_ALL!                  " & set "b_all=!b_all:~0,18!"
@@ -330,7 +430,7 @@ pause
 goto MENU
 
 :EDIT_PROFILE
-cls
+if not defined ROUTERFW_NO_CLS cls
 :: Используем зеленый цвет (%C_VAL%) для заголовка
 echo %C_KEY%!L_SEPARATOR_EQ!%C_RST%
 echo  %C_VAL%%L_EDIT_TITLE%%C_RST%
@@ -353,6 +453,7 @@ if %n_e% lss 1 goto INVALID
 set "SEL_CONF=!profile[%n_e%]!"
 set "SEL_ID=!profile[%n_e%]:.conf=!"
 
+:EDIT_OPEN
 :: --- БЛОК ОТЛАДКИ / СОСТОЯНИЯ (DEBUG INFO) ---
 echo.
 echo %C_VAL%[%L_ANALYSIS%: !SEL_ID!]%C_RST%
@@ -395,6 +496,7 @@ if /i "!open_f!"=="Y" (
 
 echo %L_FINISHED%
 timeout /t 2 >nul
+if defined CLI_CMD exit /b 0
 goto MENU
 
 :BUILD_ALL
@@ -412,6 +514,7 @@ for /L %%i in (1,1,%count%) do (
 )
 echo !L_BUILD_LAUNCHED!
 pause
+if defined CLI_CMD exit /b 0
 goto MENU
 
 :SWITCH_MODE
@@ -424,7 +527,7 @@ goto MENU
 
 :: IMPORT IPK SECTION
 :IMPORT_IPK
-cls
+if not defined ROUTERFW_NO_CLS cls
 echo %C_LBL%==========================================================%C_RST%
 echo  %L_IMPORT_IPK_TITLE%
 echo %C_LBL%==========================================================%C_RST%
@@ -471,8 +574,8 @@ goto MENU
 ::  NEW CLEANUP WIZARD (GRANULAR CONTROL)
 :: =========================================================
 :CLEAN_MENU
-cls
-color 0E
+if not defined ROUTERFW_NO_CLS cls
+if not defined ROUTERFW_NO_CLS color 0E
 echo !L_SEPARATOR_EQ!
 echo  %L_CLEAN_TITLE% [%BUILD_MODE%]
 echo !L_SEPARATOR_EQ!
@@ -548,7 +651,7 @@ goto SELECT_PROFILE_FOR_CLEAN
 ::  ВЫБОР ПРОФИЛЯ ДЛЯ ОЧИСТКИ
 :: =========================================================
 :SELECT_PROFILE_FOR_CLEAN
-cls
+if not defined ROUTERFW_NO_CLS cls
 echo !L_SEPARATOR_EQ!
 echo  !L_CLEAN_HEADER!: %CLEAN_DESC%
 echo !L_SEPARATOR_EQ!
@@ -585,18 +688,22 @@ set "TARGET_PROFILE_ID=!profile[%p_choice%]:.conf=!"
 
 :CONFIRM_CLEAN
 echo.
-if "%TARGET_PROFILE_ID%"=="ALL" color 0C
+if "%TARGET_PROFILE_ID%"=="ALL" if not defined ROUTERFW_NO_CLS color 0C
 echo !L_CLEAN_CONFIRM_SEL!: %CLEAN_DESC%
 echo !L_P_TARGET!:    %TARGET_PROFILE_NAME%
 echo.
 if "%TARGET_PROFILE_ID%"=="ALL" echo !C_ERR!!L_CLEAN_CONFIRM_WARN!!C_RST!
 echo.
-set "confirm="
-set /p confirm="!L_CONFIRM_YES!: "
+if defined CLI_CLEAN_YES (
+    set "confirm=YES"
+) else (
+    set "confirm="
+    set /p confirm="!L_CONFIRM_YES!: "
+)
 
 :: Если нажали Enter или ввели не YES - отмена
 if /i not "!confirm!"=="YES" goto CLEAN_MENU
-color 0E
+if not defined ROUTERFW_NO_CLS color 0E
 echo.
 echo %L_CLEAN_RUN%
 
@@ -738,6 +845,7 @@ set "PROJ_NAME=srcbuild_%TARGET_PROFILE_ID%"
 docker-compose -f system/docker-compose-src.yaml -p %PROJ_NAME% run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && if [ -f Makefile ]; then echo '[CMD] make clean'; make clean; echo '[DONE] Clean Completed'; else echo '[WARN] Makefile not found'; fi"
 echo.
 pause
+if defined CLI_CLEAN_YES exit /b 0
 goto CLEAN_MENU
 
 :EXEC_SRC_WORK
@@ -745,6 +853,7 @@ call :HELPER_RELEASE_LOCKS "%TARGET_PROFILE_ID%"
 call :HELPER_DEL_VOLUME "src-workdir" "%TARGET_PROFILE_ID%"
 echo !L_CLEAN_DONE_WORK!
 pause
+if defined CLI_CLEAN_YES exit /b 0
 goto CLEAN_MENU
 
 :EXEC_SRC_DL
@@ -752,6 +861,7 @@ call :HELPER_RELEASE_LOCKS "%TARGET_PROFILE_ID%"
 call :HELPER_DEL_VOLUME "src-dl-cache" "%TARGET_PROFILE_ID%"
 echo !L_CLEAN_DONE_DL!
 pause
+if defined CLI_CLEAN_YES exit /b 0
 goto CLEAN_MENU
 
 :EXEC_SRC_CCACHE
@@ -759,6 +869,7 @@ call :HELPER_RELEASE_LOCKS "%TARGET_PROFILE_ID%"
 call :HELPER_DEL_VOLUME "src-ccache" "%TARGET_PROFILE_ID%"
 echo !L_CLEAN_DONE_CC!
 pause
+if defined CLI_CLEAN_YES exit /b 0
 goto CLEAN_MENU
 
 :EXEC_SRC_TMP
@@ -778,6 +889,7 @@ set "PROJ_NAME=srcbuild_%TARGET_PROFILE_ID%"
 docker-compose -f system/docker-compose-src.yaml -p %PROJ_NAME% run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && echo '[CMD] rm -rf tmp/' && rm -rf tmp/ && echo '[DONE] Index/Tmp cleaned'"
 echo.
 pause
+if defined CLI_CLEAN_YES exit /b 0
 goto CLEAN_MENU
 
 :EXEC_SRC_ALL
@@ -802,6 +914,7 @@ call :HELPER_DEL_VOLUME "src-ccache" "%TARGET_PROFILE_ID%"
 echo.
 echo !L_CLEAN_FULL_DONE!
 pause
+if defined CLI_CLEAN_YES exit /b 0
 goto CLEAN_MENU
 
 :: --- IMAGE ACTIONS ---
@@ -810,6 +923,7 @@ call :HELPER_RELEASE_LOCKS "%TARGET_PROFILE_ID%"
 call :HELPER_DEL_VOLUME "imagebuilder-cache" "%TARGET_PROFILE_ID%"
 echo !L_CLEAN_DONE_SDK!
 pause
+if defined CLI_CLEAN_YES exit /b 0
 goto CLEAN_MENU
 
 :EXEC_IMG_IPK
@@ -817,6 +931,7 @@ call :HELPER_RELEASE_LOCKS "%TARGET_PROFILE_ID%"
 call :HELPER_DEL_VOLUME "ipk-cache" "%TARGET_PROFILE_ID%"
 echo !L_CLEAN_DONE_IPK!
 pause
+if defined CLI_CLEAN_YES exit /b 0
 goto CLEAN_MENU
 
 :EXEC_IMG_ALL
@@ -837,10 +952,11 @@ call :HELPER_DEL_VOLUME "ipk-cache" "%TARGET_PROFILE_ID%"
 echo.
 echo !L_CLEAN_FULL_DONE!
 pause
+if defined CLI_CLEAN_YES exit /b 0
 goto CLEAN_MENU
 
 :WIZARD
-cls
+if not defined ROUTERFW_NO_CLS cls
 echo !L_SEPARATOR_EQ!
 echo  %L_WIZ_START%
 echo !L_SEPARATOR_EQ!
@@ -854,6 +970,7 @@ if exist "system/create_profile.ps1" (
     echo %L_ERR_WIZ%
     pause
 )
+if defined CLI_CMD exit /b 0
 goto MENU
 
 :INVALID
@@ -862,11 +979,206 @@ pause
 goto MENU
 
 :: =========================================================
+::  CLI DISPATCH (command-line mode)
+:: =========================================================
+:CLI_DISPATCH
+if "%CLI_CMD%"=="HELP" goto CLI_HELP
+if "%CLI_CMD%"=="STATE" goto CLI_STATE
+if "%CLI_CMD%"=="WIZARD" goto WIZARD
+if "%CLI_CMD%"=="BUILD_ALL" goto BUILD_ALL
+if "%CLI_CMD%"=="BUILD" goto CLI_BUILD
+if "%CLI_CMD%"=="EDIT" goto CLI_EDIT
+if "%CLI_CMD%"=="MENUCONFIG" goto CLI_MENUCONFIG
+if "%CLI_CMD%"=="IMPORT" goto CLI_IMPORT
+if "%CLI_CMD%"=="CLEAN" goto CLI_CLEAN
+echo !L_CLI_ERR_UNKNOWN_CMD!!CLI_CMD!!C_RST!
+exit /b 1
+
+:CLI_HELP
+echo.
+echo !C_LBL!!L_CLI_HELP_HEAD!!C_RST!
+echo.
+echo !C_GRY!!L_CLI_LANG_KEY!!C_RST!
+echo !C_GRY!!L_CLI_MODE_PREFIX!!C_RST!
+echo.
+echo   build, b              ^<id^>                 %L_CLI_DESC_BUILD%
+echo   build-all, a, all                          %L_CLI_DESC_BUILD_ALL%
+echo   edit, e               [id]                 %L_CLI_DESC_EDIT%
+echo   menuconfig, k         ^<id^>                 %L_CLI_DESC_MENUCONFIG%
+echo   import, i             ^<id^>                 %L_CLI_DESC_IMPORT%
+echo   wizard, w                                  %L_CLI_DESC_WIZARD%
+echo   clean, c              [1-6/1-3] [id/A]     %L_CLI_DESC_CLEAN%
+echo   state, s                                   %L_CLI_DESC_STATE%
+echo   help, -h, --help                           %L_CLI_DESC_HELP%
+echo.
+echo !C_GRY!!L_CLI_HELP_FOOT!!C_RST!
+echo !C_GRY!!L_CLI_USAGE_HEAD!!C_RST!
+echo %L_CLI_USAGE_1%
+echo %L_CLI_USAGE_2%
+echo %L_CLI_USAGE_3%
+echo %L_CLI_USAGE_4%
+echo %L_CLI_USAGE_5%
+echo !L_CLI_IB_SRC_HEAD!
+echo   %L_CLI_IB_SRC_1%
+echo   %L_CLI_IB_SRC_2%
+echo   %L_CLI_IB_SRC_3%
+echo   %L_CLI_IB_SRC_4%
+echo.
+exit /b 0
+
+:CLI_STATE
+echo.
+echo !C_LBL!!L_ANALYSIS!!C_RST!
+echo.
+for /L %%i in (1,1,%count%) do (
+    set "p_id=!profile[%%i]:.conf=!"
+    set "this_arch=--------"
+    for /f "usebackq tokens=2 delims==" %%a in (`type "profiles\!profile[%%i]!" ^| findstr "SRC_ARCH"`) do (
+        set "VAL=%%a"
+        set "VAL=!VAL:"=!"
+        for /f "tokens=* delims= " %%b in ("!VAL!") do set "this_arch=%%b"
+    )
+    set "st_f=!C_GRY!·!C_RST!" & dir /a-d /b /s "custom_files\!p_id!" 2>nul | findstr "^" >nul && set "st_f=!C_GRY!F!C_RST!"
+    set "st_p=!C_GRY!·!C_RST!" & dir /a-d /b /s "custom_packages\!p_id!" 2>nul | findstr "^" >nul && set "st_p=!C_KEY!P!C_RST!"
+    set "st_s=!C_GRY!·!C_RST!" & dir /a-d /b /s "src_packages\!p_id!" 2>nul | findstr "^" >nul && set "st_s=!C_VAL!S!C_RST!"
+    set "st_m=!C_GRY!·!C_RST!" & if exist "firmware_output\sourcebuilder\!p_id!\manual_config" set "st_m=!C_ERR!M!C_RST!"
+    set "st_h=!C_GRY!·!C_RST!" & if exist "custom_files\!p_id!\hooks.sh" set "st_h=!C_LBL!H!C_RST!"
+    set "st_pt=!C_GRY!·!C_RST!" & dir /a-d /b /s "custom_patches\!p_id!" 2>nul | findstr "^" >nul && set "st_pt=!C_GRY!X!C_RST!"
+    set "st_oi=!C_GRY!··!C_RST!" & dir /s /a-d /b "firmware_output\imagebuilder\!p_id!\*" 2>nul | findstr "^" >nul && set "st_oi=!C_VAL!OI!C_RST!"
+    set "st_os=!C_GRY!··!C_RST!" & dir /s /a-d /b "firmware_output\sourcebuilder\!p_id!\*" 2>nul | findstr "^" >nul && set "st_os=!C_VAL!OS!C_RST!"
+    set "id_pad=%%i" & if %%i LSS 10 set "id_pad= %%i"
+    set "tmp_name=!p_id!                                             " & set "n_name=!tmp_name:~0,45!"
+    set "tmp_arch=!this_arch!                    " & set "n_arch=!tmp_arch:~0,20!"
+    echo    !C_GRY![!C_KEY!!id_pad!!C_GRY!]!C_RST! !n_name! !C_LBL!!n_arch!!C_RST! !C_GRY![!st_f!!st_p!!st_s!!st_m!!st_h!!st_pt! !C_RST!^|!C_GRY! !st_oi! !st_os!]!C_RST!
+)
+echo    !C_GRY!────────────────────────────────────────────────────────────────────────────────────────────────────────────!C_RST!
+echo    !L_LEGEND_IND!
+echo    !C_GRY!!L_LEGEND_TEXT!!C_RST!
+echo.
+exit /b 0
+
+:CLI_RESOLVE_PROFILE
+set "SELECTED_CONF="
+if "!CLI_ARG1!"=="" echo !L_CLI_ERR_PROFILE_REQUIRED! & exit /b 1
+set "cli_trim=!CLI_ARG1: =!"
+if "!cli_trim!"=="" echo !L_CLI_ERR_PROFILE_REQUIRED! & exit /b 1
+set "cli_n=0"
+set /a "cli_n=!CLI_ARG1!" 2>nul
+if !cli_n! geq 1 if !cli_n! leq %count% (
+    for /L %%i in (1,1,%count%) do if %%i==!cli_n! set "SELECTED_CONF=!profile[%%i]!"
+)
+if not defined SELECTED_CONF for /L %%i in (1,1,%count%) do (
+    set "pbase=!profile[%%i]:.conf=!"
+    if /i "!pbase!"=="!CLI_ARG1!" set "SELECTED_CONF=!profile[%%i]!"
+)
+if not defined SELECTED_CONF (
+    echo !L_CLI_ERR_PROFILE! !CLI_ARG1!!C_RST!
+    exit /b 1
+)
+exit /b 0
+
+:CLI_BUILD
+if "!CLI_ARG1!"=="" echo !L_CLI_ERR_BUILD_NO_ID! & exit /b 1
+set "cli_trim=!CLI_ARG1: =!"
+if "!cli_trim!"=="" echo !L_CLI_ERR_BUILD_NO_ID! & exit /b 1
+call :CLI_RESOLVE_PROFILE
+if not defined SELECTED_CONF exit /b 1
+call :BUILD_ROUTINE "!SELECTED_CONF!"
+echo !L_RUNNING!
+exit /b 0
+
+:CLI_EDIT
+if not defined CLI_ARG1 echo !L_CLI_ERR_PROFILE_REQUIRED! & exit /b 1
+set "cli_trim=!CLI_ARG1: =!"
+if "!cli_trim!"=="" echo !L_CLI_ERR_PROFILE_REQUIRED! & exit /b 1
+call :CLI_RESOLVE_PROFILE
+if not defined SELECTED_CONF exit /b 1
+set "e_choice=1"
+for /L %%i in (1,1,%count%) do if "!profile[%%i]!"=="!SELECTED_CONF!" set "e_choice=%%i"
+set "SEL_CONF=!SELECTED_CONF!"
+set "SEL_ID=!SELECTED_CONF:.conf=!"
+goto EDIT_OPEN
+
+:CLI_MENUCONFIG
+if not "%BUILD_MODE%"=="SOURCE" (
+    echo !L_CLI_ERR_SOURCE_ONLY!
+    exit /b 1
+)
+call :CLI_RESOLVE_PROFILE
+if not defined SELECTED_CONF exit /b 1
+call :EXEC_MENUCONFIG "!SELECTED_CONF!"
+exit /b 0
+
+:CLI_IMPORT
+if not "%BUILD_MODE%"=="SOURCE" (
+    echo !L_CLI_ERR_SOURCE_ONLY!
+    exit /b 1
+)
+call :CLI_RESOLVE_PROFILE
+if not defined SELECTED_CONF exit /b 1
+set "SEL_CONF=!SELECTED_CONF!"
+set "SEL_ID=!SELECTED_CONF:.conf=!"
+set "P_ARCH="
+for /f "usebackq tokens=2 delims==" %%a in (`type "profiles\!SEL_CONF!" ^| findstr "SRC_ARCH"`) do (
+    set "VAL=%%a"
+    set "VAL=!VAL:"=!"
+    for /f "tokens=* delims= " %%b in ("!VAL!") do set "P_ARCH=%%b"
+)
+if exist "system/import_ipk.ps1" (
+    powershell -ExecutionPolicy Bypass -File "system/import_ipk.ps1" -ProfileID "!SEL_ID!" -TargetArch "!P_ARCH!"
+) else (
+    echo !C_KEY!!L_ERR_PS1_IPK!
+)
+exit /b 0
+
+:CLI_CLEAN
+if not defined CLI_ARG1 goto CLEAN_MENU
+set "clean_choice=!CLI_ARG1!"
+if "!clean_choice!"=="9" (
+    echo !L_PRUNE_RUN!
+    docker system prune -f
+    exit /b 0
+)
+if not defined CLI_ARG2 goto CLEAN_MENU
+set "p_choice=!CLI_ARG2!"
+if /i "!p_choice!"=="A" (
+    set "TARGET_PROFILE_ID=ALL"
+    set "TARGET_PROFILE_NAME=ALL PROFILES"
+) else (
+    set "CLI_ARG1_SAVE=!CLI_ARG1!"
+    set "CLI_ARG1=!CLI_ARG2!"
+    call :CLI_RESOLVE_PROFILE
+    set "CLI_ARG1=!CLI_ARG1_SAVE!"
+    if not defined SELECTED_CONF exit /b 1
+    set "TARGET_PROFILE_NAME=!SELECTED_CONF!"
+    set "TARGET_PROFILE_ID=!SELECTED_CONF:.conf=!"
+)
+if "%BUILD_MODE%"=="IMAGE" (
+    if "!clean_choice!"=="1" set "CLEAN_TYPE=IMG_SDK" & set "CLEAN_DESC=ImageBuilder Cache"
+    if "!clean_choice!"=="2" set "CLEAN_TYPE=IMG_IPK" & set "CLEAN_DESC=IPK Cache"
+    if "!clean_choice!"=="3" set "CLEAN_TYPE=IMG_ALL" & set "CLEAN_DESC=FULL RESET (Image)"
+)
+if "%BUILD_MODE%"=="SOURCE" (
+    if "!clean_choice!"=="1" set "CLEAN_TYPE=SRC_SOFT" & set "CLEAN_DESC=Soft Clean"
+    if "!clean_choice!"=="2" set "CLEAN_TYPE=SRC_WORK" & set "CLEAN_DESC=Workdir"
+    if "!clean_choice!"=="3" set "CLEAN_TYPE=SRC_DL" & set "CLEAN_DESC=DL Cache"
+    if "!clean_choice!"=="4" set "CLEAN_TYPE=SRC_CCACHE" & set "CLEAN_DESC=CCache"
+    if "!clean_choice!"=="5" set "CLEAN_TYPE=SRC_TMP" & set "CLEAN_DESC=Package Index"
+    if "!clean_choice!"=="6" set "CLEAN_TYPE=SRC_ALL" & set "CLEAN_DESC=FULL RESET (Source)"
+)
+if not defined CLEAN_TYPE (
+    echo !L_CLI_ERR_INVALID_CLEAN_TYPE!!clean_choice!!L_CLI_ERR_CLEAN_TYPE_HINT!!C_RST!
+    exit /b 1
+)
+set "CLI_CLEAN_YES=1"
+goto CONFIRM_CLEAN
+
+:: =========================================================
 ::  MENUCONFIG SECTION
 :: =========================================================
 :MENUCONFIG_SELECTION
 if not "%BUILD_MODE%"=="SOURCE" goto MENU
-cls
+if not defined ROUTERFW_NO_CLS cls
 echo !L_SEPARATOR_EQ!
 echo  %C_KEY%%L_K_TITLE%%C_RST%
 echo !L_SEPARATOR_EQ!
@@ -1025,8 +1337,8 @@ echo     # FIX: Check if DEVICE is already set in SRC_EXTRA_CONFIG to avoid conf
 echo     if echo "$SRC_EXTRA_CONFIG" ^| grep -q "CONFIG_TARGET_.*_DEVICE_"; then >> "%RUNNER_SCRIPT%"
 echo         echo "[CONFIG] Device explicitly set in EXTRA_CONFIG. Skipping auto-detection." >> "%RUNNER_SCRIPT%"
 echo     else >> "%RUNNER_SCRIPT%"
-echo         CLEAN_PROFILE=$(echo "$TARGET_PROFILE" ^| tr '-' '_') >> "%RUNNER_SCRIPT%"
-echo         echo "CONFIG_TARGET_${SRC_TARGET}_${SRC_SUBTARGET}_DEVICE_$CLEAN_PROFILE=y" ^>^> .config >> "%RUNNER_SCRIPT%"
+echo         # Use TARGET_PROFILE as-is: OpenWrt Kconfig device IDs use hyphens >> "%RUNNER_SCRIPT%"
+echo         echo "CONFIG_TARGET_${SRC_TARGET}_${SRC_SUBTARGET}_DEVICE_$TARGET_PROFILE=y" ^>^> .config >> "%RUNNER_SCRIPT%"
 echo     fi >> "%RUNNER_SCRIPT%"
 echo. >> "%RUNNER_SCRIPT%"
 echo     for pkg in $SRC_PACKAGES; do >> "%RUNNER_SCRIPT%"

@@ -4,7 +4,7 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-VER_NUM="4.43"
+VER_NUM="4.44"
 
 # Bootstrap — dict not yet available
 # Функция очистки при прерывании (Ctrl+C). Вызывается по SIGINT/SIGTERM в любой момент,
@@ -30,8 +30,41 @@ C_OK="${ESC}[92m"    # Bright Green
 C_ERR="${ESC}[91m"   # Bright Red
 C_RST="${ESC}[0m"    # Reset
 
+# === CLI: ключ языка в любой позиции; вырезаем его и собираем эффективный список (effective_1..effective_9), паритет с bat ===
+# Только ключ языка (без других аргументов) = меню с принудительным языком. Иначе = CLI, ключ вырезается.
+effective_1="" effective_2="" effective_3="" effective_4="" effective_5="" effective_6="" effective_7="" effective_8="" effective_9=""
+_cli_args=("" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9")
+_idx=1
+_i=1
+while [ $_i -le 9 ]; do
+    _arg="${_cli_args[$_i]}"
+    [ -z "$_arg" ] && { ((_i++)); continue; }
+    if [[ "$_arg" == --lang=* ]] && [ ${#_arg} -ge 9 ]; then
+        _val="${_arg:7}"
+        if [[ "${_val^^}" == "RU" ]]; then FORCE_LANG="RU"; ((_i++)); continue; fi
+        if [[ "${_val^^}" == "EN" ]]; then FORCE_LANG="EN"; ((_i++)); continue; fi
+        CLI_LANG_ERROR=1
+        ((_i++))
+        continue
+    fi
+    if [[ "$_arg" == --lang || "$_arg" == -l ]]; then
+        _next="${_cli_args[$((_i+1))]}"
+        if [[ -n "$_next" && "${_next^^}" == "RU" ]]; then FORCE_LANG="RU"; ((_i+=2)); continue; fi
+        if [[ -n "$_next" && "${_next^^}" == "EN" ]]; then FORCE_LANG="EN"; ((_i+=2)); continue; fi
+        CLI_LANG_ERROR=1
+        [ -n "$_next" ] && ((_i++))
+        ((_i++))
+        continue
+    fi
+    eval "effective_$_idx=\"\$_arg\""
+    ((_idx++))
+    ((_i++))
+    [ $_idx -gt 9 ] && break
+done
+
 # === ЯЗЫКОВОЙ МОДУЛЬ ===
-FORCE_LANG="AUTO"  # AUTO | RU | EN
+# AUTO только если язык не задан из CLI
+[ -z "$FORCE_LANG" ] && FORCE_LANG="AUTO"  # AUTO | RU | EN
 SYS_LANG="EN"
 ru_score=0
 
@@ -115,6 +148,7 @@ load_lang() {
 LANG_FILE="system/lang/${SYS_LANG,,}.env"
 [ ! -f "$LANG_FILE" ] && LANG_FILE="system/lang/en.env"
 load_lang "$LANG_FILE"
+[ -n "${CLI_LANG_ERROR:-}" ] && echo -e "$L_CLI_ERR_LANG" && exit 1
 
 # Language detector output — технический вывод детектора, хардкод допустим
 echo -e "${C_LBL}[INIT]${C_RST} Language detector (Weighted Detection)..."
@@ -399,9 +433,8 @@ else
     if echo "\$SRC_EXTRA_CONFIG" | grep -q "CONFIG_TARGET_.*_DEVICE_"; then
         echo "[CONFIG] Device explicitly set in EXTRA_CONFIG. Skipping auto-detection."
     else
-        # Заменяем дефисы на подчеркивания, как делает OpenWrt build system
-        CLEAN_PROFILE=\$(echo "\$TARGET_PROFILE" | tr '-' '_')
-        echo "CONFIG_TARGET_\${SRC_TARGET}_\${SRC_SUBTARGET}_DEVICE_\$CLEAN_PROFILE=y" >> .config
+        # Use TARGET_PROFILE as-is: OpenWrt Kconfig device IDs use hyphens (e.g. tplink_tl-wr1043nd-v2)
+        echo "CONFIG_TARGET_\${SRC_TARGET}_\${SRC_SUBTARGET}_DEVICE_\$TARGET_PROFILE=y" >> .config
     fi
     for pkg in \$SRC_PACKAGES; do
         if [[ "\$pkg" == -* ]]; then
@@ -560,6 +593,86 @@ cleanup_logic() {
     fi
 }
 
+# Общая логика очистки по типу и цели (используется и интерактивным меню, и CLI).
+# Возвращает 0 при успехе, 1 если тип недопустим или для SOURCE 1/5 при target_id=ALL.
+do_cleanup_by_type() {
+    local c_choice="$1"
+    local target_id="$2"
+    if [ "$BUILD_MODE" == "SOURCE" ]; then
+        case $c_choice in
+            1)
+                if [ "$target_id" == "ALL" ]; then echo -e "${L_CLEAN_SOFT_ALL_ERR}"; return 1; fi
+                echo "$L_CLEAN_START_CONTAINER"
+                export HOST_FILES_DIR="$(pwd)/custom_files/$target_id"
+                export HOST_OUTPUT_DIR="$(pwd)/firmware_output/sourcebuilder/$target_id"
+                export HOST_PKGS_DIR="$(pwd)/src_packages/$target_id"
+                $C_EXE -f system/docker-compose-src.yaml -p "srcbuild_$target_id" run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && if [ -f Makefile ]; then echo '[CMD] make clean'; make clean; echo '[DONE] Clean Completed'; else echo '[WARN] Makefile not found'; fi"
+                ;;
+            2) cleanup_logic "src-workdir" "$target_id" ;;
+            3) cleanup_logic "src-dl-cache" "$target_id" ;;
+            4) cleanup_logic "src-ccache" "$target_id" ;;
+            5)
+                if [ "$target_id" == "ALL" ]; then echo -e "${L_CLEAN_SOFT_ALL_ERR}"; return 1; fi
+                echo "$L_CLEAN_START_CONTAINER"
+                export HOST_FILES_DIR="$(pwd)/custom_files/$target_id"
+                export HOST_OUTPUT_DIR="$(pwd)/firmware_output/sourcebuilder/$target_id"
+                export HOST_PKGS_DIR="$(pwd)/src_packages/$target_id"
+                $C_EXE -f system/docker-compose-src.yaml -p "srcbuild_$target_id" run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && rm -rf tmp/ && echo '[DONE] Index/Tmp cleaned'"
+                ;;
+            6)
+                cleanup_logic "src-workdir" "$target_id"
+                cleanup_logic "src-dl-cache" "$target_id"
+                cleanup_logic "src-ccache" "$target_id"
+                [ "$target_id" == "ALL" ] && rm -rf firmware_output/sourcebuilder/* 2>/dev/null || rm -rf "firmware_output/sourcebuilder/$target_id" 2>/dev/null
+                echo -e "${L_CLEAN_FULL_DONE}"
+                ;;
+            *) return 1 ;;
+        esac
+    else
+        case $c_choice in
+            1) cleanup_logic "imagebuilder-cache" "$target_id" ;;
+            2) cleanup_logic "ipk-cache" "$target_id" ;;
+            3)
+                cleanup_logic "imagebuilder-cache" "$target_id"
+                cleanup_logic "ipk-cache" "$target_id"
+                [ "$target_id" == "ALL" ] && rm -rf firmware_output/imagebuilder/* 2>/dev/null || rm -rf "firmware_output/imagebuilder/$target_id" 2>/dev/null
+                echo -e "${L_CLEAN_FULL_DONE}"
+                ;;
+            *) return 1 ;;
+        esac
+    fi
+    return 0
+}
+
+# CLI: очистка без интерактива (тип, цель). Тип 9 = prune без цели.
+cleanup_wizard_cli() {
+    local c_choice="$1"
+    local t_choice="$2"
+    if [ "$c_choice" == "9" ]; then
+        echo -e "\n$L_PRUNE_RUN"
+        docker system prune -f
+        return 0
+    fi
+    local target_id="ALL"
+    if [ -n "$t_choice" ] && [[ "${t_choice^^}" != "A" ]]; then
+        if [[ "$t_choice" =~ ^[0-9]+$ ]] && [ -n "${profiles[$t_choice]}" ]; then
+            target_id="${profiles[$t_choice]%.conf}"
+            target_id=$(echo "$target_id" | tr -d '\r')
+        else
+            resolve_profile_by_id "$t_choice" || return 1
+            target_id="${SELECTED_CONF%.conf}"
+            target_id=$(echo "$target_id" | tr -d '\r')
+        fi
+    fi
+    release_locks "$target_id"
+    if [ "$BUILD_MODE" == "SOURCE" ]; then
+        case $c_choice in 1|2|3|4|5|6) ;; *) echo -e "${L_CLI_ERR_INVALID_CLEAN_TYPE}${c_choice}${C_RST}${L_CLI_ERR_CLEAN_TYPE_HINT}"; return 1 ;; esac
+    else
+        case $c_choice in 1|2|3) ;; *) echo -e "${L_CLI_ERR_INVALID_CLEAN_TYPE}${c_choice}${C_RST}${L_CLI_ERR_CLEAN_TYPE_HINT}"; return 1 ;; esac
+    fi
+    do_cleanup_by_type "$c_choice" "$target_id"
+}
+
 cleanup_wizard() {
     clear
     echo -e "${C_VAL}${L_CLEAN_TITLE} [${C_LBL}${BUILD_MODE}${C_VAL}]${C_RST}\n"
@@ -607,80 +720,14 @@ cleanup_wizard() {
         fi
     fi
 
-    # Сначала снимаем блокировки
+    # Сначала снимаем блокировки, затем общая логика очистки
     release_locks "$target_id"
-    
     if [ "$BUILD_MODE" == "SOURCE" ]; then
-        # === ЛОГИКА SOURCE BUILDER ===
-        case $c_choice in
-            1) 
-                # SOFT CLEAN (Make Clean) - Реализация как в BAT
-                if [ "$target_id" == "ALL" ]; then
-                    echo -e "${L_CLEAN_SOFT_ALL_ERR}"
-                else
-                    echo "$L_CLEAN_START_CONTAINER"
-                    # Важно: используем абсолютные пути, как в build_routine
-                    export HOST_FILES_DIR="$(pwd)/custom_files/$target_id"
-                    export HOST_OUTPUT_DIR="$(pwd)/firmware_output/sourcebuilder/$target_id"
-                    export HOST_PKGS_DIR="$(pwd)/src_packages/$target_id"
-                    
-                    # Запуск команды make clean внутри контейнера
-                    docker-compose -f system/docker-compose-src.yaml -p "srcbuild_$target_id" \
-                        run --rm builder-src-openwrt /bin/bash -c \
-                        "cd /home/build/openwrt && if [ -f Makefile ]; then echo '[CMD] make clean'; make clean; echo '[DONE] Clean Completed'; else echo '[WARN] Makefile not found'; fi"
-                fi
-                ;;
-            2) cleanup_logic "src-workdir" "$target_id" ;;
-            3) cleanup_logic "src-dl-cache" "$target_id" ;;
-            4) cleanup_logic "src-ccache" "$target_id" ;;
-            5)
-                # [NEW] TMP CLEANUP (Sync with Bat v4.32)
-                if [ "$target_id" == "ALL" ]; then
-                    echo -e "${L_CLEAN_SOFT_ALL_ERR}"
-                else
-                    echo "$L_CLEAN_START_CONTAINER"
-                    export HOST_FILES_DIR="$(pwd)/custom_files/$target_id"
-                    export HOST_OUTPUT_DIR="$(pwd)/firmware_output/sourcebuilder/$target_id"
-                    export HOST_PKGS_DIR="$(pwd)/src_packages/$target_id"
-                    docker-compose -f system/docker-compose-src.yaml -p "srcbuild_$target_id" \
-                        run --rm builder-src-openwrt /bin/bash -c \
-                        "cd /home/build/openwrt && rm -rf tmp/ && echo '[DONE] Index/Tmp cleaned'"
-                fi
-                ;;
-            6) 
-                # FULL RESET (Moved to 6)
-                cleanup_logic "src-workdir" "$target_id"
-                cleanup_logic "src-dl-cache" "$target_id"
-                cleanup_logic "src-ccache" "$target_id"
-                # Дополнительно удаляем папку вывода
-                if [ "$target_id" == "ALL" ]; then
-                    rm -rf firmware_output/sourcebuilder/* 2>/dev/null
-                else
-                    rm -rf "firmware_output/sourcebuilder/$target_id" 2>/dev/null
-                fi
-                echo -e "${L_CLEAN_FULL_DONE}"
-                ;;
-            *) return ;;
-        esac
+        case $c_choice in 1|2|3|4|5|6) ;; *) return ;; esac
     else
-        # === ЛОГИКА IMAGE BUILDER ===
-        case $c_choice in
-            1) cleanup_logic "imagebuilder-cache" "$target_id" ;; # SDK Cache
-            2) cleanup_logic "ipk-cache" "$target_id" ;;          # IPK Cache
-            3)
-                # FULL RESET (Image)
-                cleanup_logic "imagebuilder-cache" "$target_id"
-                cleanup_logic "ipk-cache" "$target_id"
-                if [ "$target_id" == "ALL" ]; then
-                    rm -rf firmware_output/imagebuilder/* 2>/dev/null
-                else
-                    rm -rf "firmware_output/imagebuilder/$target_id" 2>/dev/null
-                fi
-                echo -e "${L_CLEAN_FULL_DONE}"
-                ;;
-            *) return ;;
-        esac
+        case $c_choice in 1|2|3) ;; *) return ;; esac
     fi
+    do_cleanup_by_type "$c_choice" "$target_id" || true
     echo ""
     read -p "$L_PRESS_ENTER"
 }
@@ -791,6 +838,252 @@ patch_architectures() {
 patch_architectures
 migrate_profile_vars
 
+# === CLI: эффективный список аргументов (без ключа языка), префикс режима (ib/src), команда; до 9 позиций, паритет с bat ===
+CLI_CMD=""
+CLI_ARG1=""
+CLI_ARG2=""
+p1="$effective_1"
+p2="$effective_2"
+p3="$effective_3"
+p4="$effective_4"
+p5="$effective_5"
+p6="$effective_6"
+p7="$effective_7"
+p8="$effective_8"
+p9="$effective_9"
+if [ -n "$p1" ]; then
+    mode_shift=0
+    case "${p1^^}" in
+        IB|IMAGE)   BUILD_MODE="IMAGE";  mode_shift=1 ;;
+        SRC|SOURCE) BUILD_MODE="SOURCE"; mode_shift=1 ;;
+    esac
+    if [ "$mode_shift" -eq 1 ]; then
+        c1="$p2"; c2="$p3"; c3="$p4"
+    else
+        c1="$p1"; c2="$p2"; c3="$p3"
+    fi
+    _cmd="${c1^^}"
+    case "$_cmd" in
+        BUILD|B)         CLI_CMD="BUILD";     CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        BUILD_ALL|ALL|A) CLI_CMD="BUILD_ALL"; CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        EDIT|E)          CLI_CMD="EDIT";      CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        MENUCONFIG|K)    CLI_CMD="MENUCONFIG"; CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        IMPORT|I)        CLI_CMD="IMPORT";    CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        WIZARD|W)        CLI_CMD="WIZARD";   CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        CLEAN|C)         CLI_CMD="CLEAN";     CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        STATE|S)         CLI_CMD="STATE";    CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        HELP|-H|--HELP)  CLI_CMD="HELP";     CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        *)               CLI_CMD="BUILD";     CLI_ARG1="$c1"; CLI_ARG2="$c2" ;;  # позиционный вызов
+    esac
+fi
+
+# === CLI: разрешение профиля по id (номер или имя) ===
+resolve_profile_by_id() {
+    SELECTED_CONF=""
+    local arg="$1"
+    local arg_trim="${arg//[[:space:]]/}"
+    if [ -z "$arg_trim" ]; then
+        echo -e "$L_CLI_ERR_PROFILE_REQUIRED"
+        return 1
+    fi
+    if [[ "$arg" =~ ^[0-9]+$ ]] && [ "$arg" -ge 1 ] && [ "$arg" -le "$count" ]; then
+        SELECTED_CONF="${profiles[$arg]}"
+        return 0
+    fi
+    local i
+    for ((i=1; i<=count; i++)); do
+        local pbase="${profiles[$i]%.conf}"
+        pbase=$(echo "$pbase" | tr -d '\r')
+        if [[ "${pbase^^}" == "${arg^^}" ]]; then
+            SELECTED_CONF="${profiles[$i]}"
+            return 0
+        fi
+    done
+    echo -e "${L_CLI_ERR_PROFILE} $arg${C_RST}"
+    return 1
+}
+
+# === CLI: диспетчер команд ===
+dispatch_cli() {
+    local script_name="${0##*/}"
+    case "$CLI_CMD" in
+        HELP)
+            echo ""
+            echo -e "${C_LBL}${L_CLI_HELP_HEAD/"_Builder.bat"/"$script_name"}${C_RST}"
+            echo ""
+            echo -e "${C_GRY}${L_CLI_LANG_KEY}${C_RST}"
+            echo -e "${C_GRY}${L_CLI_MODE_PREFIX}${C_RST}"
+            echo ""
+            printf "  %-20s %-22s %s\n" "build, b" "<id>" "$L_CLI_DESC_BUILD"
+            printf "  %-20s %-22s %s\n" "build-all, a, all" "" "$L_CLI_DESC_BUILD_ALL"
+            printf "  %-20s %-22s %s\n" "edit, e" "[id]" "$L_CLI_DESC_EDIT"
+            printf "  %-20s %-22s %s\n" "menuconfig, k" "<id>" "$L_CLI_DESC_MENUCONFIG"
+            printf "  %-20s %-22s %s\n" "import, i" "<id>" "$L_CLI_DESC_IMPORT"
+            printf "  %-20s %-22s %s\n" "wizard, w" "" "$L_CLI_DESC_WIZARD"
+            printf "  %-20s %-22s %s\n" "clean, c" "[1-6/1-3] [id/A]" "$L_CLI_DESC_CLEAN"
+            printf "  %-20s %-22s %s\n" "state, s" "" "$L_CLI_DESC_STATE"
+            printf "  %-20s %-22s %s\n" "help, -h, --help" "" "$L_CLI_DESC_HELP"
+            echo ""
+            echo -e "${C_GRY}${L_CLI_HELP_FOOT/"_Builder.bat"/"$script_name"}${C_RST}"
+            echo -e "${C_GRY}${L_CLI_USAGE_HEAD}${C_RST}"
+            echo -e "${L_CLI_USAGE_1/_Builder.bat/$script_name}"
+            echo -e "${L_CLI_USAGE_2/_Builder.bat/$script_name}"
+            echo -e "${L_CLI_USAGE_3/_Builder.bat/$script_name}"
+            echo -e "${L_CLI_USAGE_4/_Builder.bat/$script_name}"
+            echo -e "${L_CLI_USAGE_5/_Builder.bat/$script_name}"
+            echo -e "${L_CLI_IB_SRC_HEAD/_Builder.bat/$script_name}"
+            echo "  ${L_CLI_IB_SRC_1/_Builder.bat/$script_name}"
+            echo "  ${L_CLI_IB_SRC_2/_Builder.bat/$script_name}"
+            echo "  ${L_CLI_IB_SRC_3/_Builder.bat/$script_name}"
+            echo "  ${L_CLI_IB_SRC_4/_Builder.bat/$script_name}"
+            echo ""
+            exit 0
+            ;;
+        STATE)
+            echo ""
+            echo -e "${C_LBL}${L_ANALYSIS}${C_RST}"
+            echo ""
+            for ((i=1; i<=count; i++)); do
+                p_id="${profiles[$i]%.conf}"
+                p_id=$(echo "$p_id" | tr -d '\r')
+                f="profiles/${profiles[$i]}"
+                this_arch=$(grep "SRC_ARCH=" "$f" 2>/dev/null | cut -d'"' -f2 | tr -d '\r')
+                [ -z "$this_arch" ] && this_arch="--------"
+                st_f="${C_GRY}·${C_RST}"; [ "$(ls -A "custom_files/$p_id" 2>/dev/null)" ] && st_f="${C_GRY}F${C_RST}"
+                st_p="${C_GRY}·${C_RST}"; [ "$(ls -A "custom_packages/$p_id" 2>/dev/null)" ] && st_p="${C_KEY}P${C_RST}"
+                st_s="${C_GRY}·${C_RST}"; [ "$(ls -A "src_packages/$p_id" 2>/dev/null)" ] && st_s="${C_VAL}S${C_RST}"
+                st_m="${C_GRY}·${C_RST}"; [ -f "firmware_output/sourcebuilder/$p_id/manual_config" ] && st_m="${C_ERR}M${C_RST}"
+                st_h="${C_GRY}·${C_RST}"; [ -f "custom_files/$p_id/hooks.sh" ] && st_h="${C_LBL}H${C_RST}"
+                st_pt="${C_GRY}·${C_RST}"; [ -d "custom_patches/$p_id" ] && [ "$(ls -A "custom_patches/$p_id" 2>/dev/null)" ] && st_pt="${C_GRY}X${C_RST}"
+                st_oi="${C_GRY}··${C_RST}"; [ -n "$(find "firmware_output/imagebuilder/$p_id" -type f 2>/dev/null)" ] && st_oi="${C_VAL}OI${C_RST}"
+                st_os="${C_GRY}··${C_RST}"; [ -n "$(find "firmware_output/sourcebuilder/$p_id" -type f 2>/dev/null)" ] && st_os="${C_VAL}OS${C_RST}"
+                printf "    ${C_GRY}[${C_KEY}%2d${C_GRY}]${C_RST} %-45s ${C_LBL}%-20s${C_RST} ${C_GRY}[%s%s%s%s%s%s | %s %s]${C_RST}\n" \
+                       "$i" "$p_id" "$this_arch" "$st_f" "$st_p" "$st_s" "$st_m" "$st_h" "$st_pt" "$st_oi" "$st_os"
+            done
+            echo -e "    ${C_GRY}────────────────────────────────────────────────────────────────────────────────────────────────────────────${C_RST}"
+            echo -e "    ${L_LEGEND_IND}"
+            echo -e "    ${C_GRY}${L_LEGEND_TEXT}${C_RST}"
+            echo ""
+            exit 0
+            ;;
+        WIZARD)
+            [ -f "system/create_profile.sh" ] && bash "system/create_profile.sh" || echo "$L_ERR_WIZ"
+            exit 0
+            ;;
+        BUILD)
+            trim1="${CLI_ARG1//[[:space:]]/}"
+            if [ -z "$trim1" ]; then
+                echo -e "$L_CLI_ERR_BUILD_NO_ID"
+                exit 1
+            fi
+            resolve_profile_by_id "$CLI_ARG1" || exit 1
+            build_routine "$SELECTED_CONF"
+            echo -e "$L_RUNNING"
+            exit 0
+            ;;
+        EDIT)
+            if [ -z "$CLI_ARG1" ]; then
+                clear
+                echo -e "${C_VAL}${L_EDIT_TITLE}${C_RST}"
+                echo -e "  ${L_CHOICE}:"
+                echo ""
+                for ((i=1; i<=count; i++)); do
+                    printf "  ${C_LBL}[${C_KEY}%d${C_LBL}]${C_RST} %s\n" "$i" "${profiles[$i]%.conf}"
+                done
+                echo ""
+                echo -e "  ${C_LBL}[${C_KEY}0${C_LBL}]${C_RST} ${L_BACK}"
+                echo ""
+                read -p "  ID: " e_choice
+                if [[ "$e_choice" =~ ^[0-9]+$ ]] && [ "$e_choice" -le "$count" ] && [ "$e_choice" -gt 0 ]; then
+                    sel_conf="${profiles[$e_choice]}"
+                    sel_id="${sel_conf%.conf}"
+                    echo -e "${C_VAL}[${L_ANALYSIS}]${C_RST} ${C_KEY}${sel_id}${C_RST}"
+                    echo -e "${C_GRY}${L_SEPARATOR}${C_RST}"
+                    if [ -d "custom_files/$sel_id" ] && [ "$(ls -A "custom_files/$sel_id" 2>/dev/null)" ]; then stat_files="${L_FOUND} ${L_ST_SUFFIX_FILES}"; else stat_files="${L_MISSING}"; fi
+                    if [ -d "custom_packages/$sel_id" ] && [ "$(ls -A "custom_packages/$sel_id" 2>/dev/null)" ]; then stat_pkgs="${L_FOUND} ${L_ST_SUFFIX_IPK}"; else stat_pkgs="${L_MISSING}"; fi
+                    if [ -d "src_packages/$sel_id" ] && [ "$(ls -A "src_packages/$sel_id" 2>/dev/null)" ]; then stat_srcs="${L_FOUND} ${L_ST_SUFFIX_SRC}"; else stat_srcs="${L_MISSING}"; fi
+                    if [ -d "firmware_output/sourcebuilder/$sel_id" ] && [ "$(ls -A "firmware_output/sourcebuilder/$sel_id" 2>/dev/null)" ]; then stat_out_s="${L_FOUND} ${L_ST_SUFFIX_OUT_S}"; else stat_out_s="${L_EMPTY}"; fi
+                    if [ -d "firmware_output/imagebuilder/$sel_id" ] && [ "$(ls -A "firmware_output/imagebuilder/$sel_id" 2>/dev/null)" ]; then stat_out_i="${L_FOUND} ${L_ST_SUFFIX_OUT_I}"; else stat_out_i="${L_EMPTY}"; fi
+                    echo -e "  - ${L_ST_CONF}: ${C_VAL}profiles/$sel_conf${C_RST}"
+                    echo -e "  - ${L_ST_OVER}: $stat_files"
+                    echo -e "  - ${L_ST_IPK}:  $stat_pkgs"
+                    echo -e "  - ${L_ST_SRC}:  $stat_srcs"
+                    echo -e "  - ${L_ST_OUTS}: $stat_out_s"
+                    echo -e "  - ${L_ST_OUTI}: $stat_out_i"
+                    echo -e "${C_GRY}${L_SEPARATOR}${C_RST}"
+                    echo ""
+                    echo -e "${C_VAL}[${L_ACTION}]${C_RST} ${C_VAL}profiles/$sel_conf${C_RST} ${L_IN_EDITOR}"
+                    "${EDITOR:-nano}" "profiles/$sel_conf"
+                fi
+                exit 0
+            fi
+            resolve_profile_by_id "$CLI_ARG1" || exit 1
+            sel_conf="$SELECTED_CONF"
+            sel_id="${sel_conf%.conf}"
+            # Переход к блоку «открыть редактор» без вывода списка
+            clear
+            echo -e "${C_VAL}[${L_ANALYSIS}]${C_RST} ${C_KEY}${sel_id}${C_RST}"
+            echo -e "${C_GRY}${L_SEPARATOR}${C_RST}"
+            if [ -d "custom_files/$sel_id" ] && [ "$(ls -A "custom_files/$sel_id" 2>/dev/null)" ]; then stat_files="${L_FOUND} ${L_ST_SUFFIX_FILES}"; else stat_files="${L_MISSING}"; fi
+            if [ -d "custom_packages/$sel_id" ] && [ "$(ls -A "custom_packages/$sel_id" 2>/dev/null)" ]; then stat_pkgs="${L_FOUND} ${L_ST_SUFFIX_IPK}"; else stat_pkgs="${L_MISSING}"; fi
+            if [ -d "src_packages/$sel_id" ] && [ "$(ls -A "src_packages/$sel_id" 2>/dev/null)" ]; then stat_srcs="${L_FOUND} ${L_ST_SUFFIX_SRC}"; else stat_srcs="${L_MISSING}"; fi
+            if [ -d "firmware_output/sourcebuilder/$sel_id" ] && [ "$(ls -A "firmware_output/sourcebuilder/$sel_id" 2>/dev/null)" ]; then stat_out_s="${L_FOUND} ${L_ST_SUFFIX_OUT_S}"; else stat_out_s="${L_EMPTY}"; fi
+            if [ -d "firmware_output/imagebuilder/$sel_id" ] && [ "$(ls -A "firmware_output/imagebuilder/$sel_id" 2>/dev/null)" ]; then stat_out_i="${L_FOUND} ${L_ST_SUFFIX_OUT_I}"; else stat_out_i="${L_EMPTY}"; fi
+            echo -e "  - ${L_ST_CONF}: ${C_VAL}profiles/$sel_conf${C_RST}"
+            echo -e "  - ${L_ST_OVER}: $stat_files"
+            echo -e "  - ${L_ST_IPK}:  $stat_pkgs"
+            echo -e "  - ${L_ST_SRC}:  $stat_srcs"
+            echo -e "  - ${L_ST_OUTS}: $stat_out_s"
+            echo -e "  - ${L_ST_OUTI}: $stat_out_i"
+            echo -e "${C_GRY}${L_SEPARATOR}${C_RST}"
+            echo ""
+            echo -e "${C_VAL}[${L_ACTION}]${C_RST} ${C_VAL}profiles/$sel_conf${C_RST} ${L_IN_EDITOR}"
+            "${EDITOR:-nano}" "profiles/$sel_conf"
+            exit 0
+            ;;
+        MENUCONFIG)
+            if [ "$BUILD_MODE" != "SOURCE" ]; then
+                echo -e "$L_CLI_ERR_SOURCE_ONLY"
+                exit 1
+            fi
+            resolve_profile_by_id "$CLI_ARG1" || exit 1
+            run_menuconfig "$SELECTED_CONF"
+            exit 0
+            ;;
+        IMPORT)
+            if [ "$BUILD_MODE" != "SOURCE" ]; then
+                echo -e "$L_CLI_ERR_SOURCE_ONLY"
+                exit 1
+            fi
+            resolve_profile_by_id "$CLI_ARG1" || exit 1
+            local p_id="${SELECTED_CONF%.conf}"
+            p_id=$(echo "$p_id" | tr -d '\r')
+            local p_arch=$(grep "SRC_ARCH=" "profiles/$SELECTED_CONF" | cut -d'"' -f2 | tr -d '\r')
+            bash system/import_ipk.sh "$p_id" "$p_arch"
+            exit 0
+            ;;
+        CLEAN)
+            if [ -z "$CLI_ARG1" ] && [ -z "$CLI_ARG2" ]; then
+                cleanup_wizard
+                exit 0
+            fi
+            # Тип 9 = prune без цели; при недостатке аргументов (тип без цели) — интерактивное меню (паритет с bat).
+            if [ "$CLI_ARG1" = "9" ]; then
+                cleanup_wizard_cli "9" "" && exit 0 || exit 1
+            fi
+            if [ -z "$CLI_ARG2" ]; then
+                cleanup_wizard
+                exit 0
+            fi
+            cleanup_wizard_cli "$CLI_ARG1" "$CLI_ARG2" && exit 0 || exit 1
+            ;;
+        *)
+            echo -e "${L_CLI_ERR_UNKNOWN_CMD}${CLI_CMD}${C_RST}"
+            exit 1
+            ;;
+    esac
+}
+
 # === ГЛАВНОЕ МЕНЮ ===
 while true; do
     clear
@@ -806,18 +1099,20 @@ while true; do
         MODE_COLOR="${ESC}[35m" # Magenta
     fi
 
-    echo -e "${C_GRY}┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐${C_RST}"
-    echo -e "  ${C_VAL}OpenWrt FW Linux Builder ${VER_NUM}${C_RST} [${C_VAL}${SYS_LANG}${C_RST}]          ${C_LBL}https://github.com/iqubik/routerFW${C_RST}"
-    echo -e "  ${L_CUR_MODE}: [${MODE_COLOR}${MODE_TITLE}${C_RST}]"
-    echo -e "${C_GRY}└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘${C_RST}"
-    echo ""
-    printf "    %-5s %-45s %-20s %-20s\n" "${C_GRY}ID" "$H_PROF" "$H_ARCH" "$H_RES${C_RST}"
-    echo -e "    ${C_GRY}────────────────────────────────────────────────────────────────────────────────────────────────────────────${C_RST}"
-
     profiles=()
     count=0
-    echo -e "    ${C_LBL}${L_PROFILES}:${C_RST}\n"
-    
+
+    if [ -z "$CLI_CMD" ]; then
+        echo -e "${C_GRY}┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐${C_RST}"
+        echo -e "  ${C_VAL}OpenWrt FW Linux Builder ${VER_NUM}${C_RST} [${C_VAL}${SYS_LANG}${C_RST}]          ${C_LBL}https://github.com/iqubik/routerFW${C_RST}"
+        echo -e "  ${L_CUR_MODE}: [${MODE_COLOR}${MODE_TITLE}${C_RST}]"
+        echo -e "${C_GRY}└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘${C_RST}"
+        echo ""
+        printf "    %-5s %-45s %-20s %-20s\n" "${C_GRY}ID" "$H_PROF" "$H_ARCH" "$H_RES${C_RST}"
+        echo -e "    ${C_GRY}────────────────────────────────────────────────────────────────────────────────────────────────────────────${C_RST}"
+        echo -e "    ${C_LBL}${L_PROFILES}:${C_RST}\n"
+    fi
+
     for f in profiles/*.conf; do
         [ -e "$f" ] || continue
         ((count++))
@@ -833,24 +1128,23 @@ while true; do
         for base in "custom_files" "custom_packages" "src_packages" "custom_patches" "firmware_output/imagebuilder" "firmware_output/sourcebuilder"; do
             target_path="$base/$p_id"
             
-            # 1. Если там файл-призрак или мусор - сносим
+            # 1. Если там файл-призрак или мусор - сносим (rm -rf: на WSL/NTFS каталог может быть определён как не-dir)
             if [ -e "$target_path" ] && [ ! -d "$target_path" ]; then
-                rm -f "$target_path"
+                rm -rf "$target_path"
             fi
 
-            # 2. Пытаемся создать. Если ошибка (глюк NTFS) - повторяем жестко.
+            # 2. Пытаемся создать. Если ошибка (глюк NTFS) - повторяем жестко. Если пути уже нет — не удалять.
             if ! mkdir -p "$target_path" 2>/dev/null; then
-                # Если сбой, значит WSL видит "призрак". Удаляем и ждем.
-                rm -rf "$target_path"
+                [ -e "$target_path" ] && rm -rf "$target_path"
                 sleep 0.1
                 mkdir -p "$target_path" 2>/dev/null
             fi
         done
 
         # Создаем вложенную структуру (etc/uci-defaults)
-        # Если 'etc' - это файл, сносим его
+        # Если 'etc' - это файл (или призрак-каталог), сносим
         if [ -e "custom_files/$p_id/etc" ] && [ ! -d "custom_files/$p_id/etc" ]; then
-             rm -f "custom_files/$p_id/etc"
+             rm -rf "custom_files/$p_id/etc"
         fi
         mkdir -p "custom_files/$p_id/etc/uci-defaults" 2>/dev/null
 
@@ -880,10 +1174,80 @@ while true; do
         st_oi="${C_GRY}··${C_RST}"; [ -n "$(find "firmware_output/imagebuilder/$p_id" -type f 2>/dev/null)" ] && st_oi="${C_VAL}OI${C_RST}"
         st_os="${C_GRY}··${C_RST}"; [ -n "$(find "firmware_output/sourcebuilder/$p_id" -type f 2>/dev/null)" ] && st_os="${C_VAL}OS${C_RST}"
 
-        # Вывод
-        printf "    ${C_GRY}[${C_KEY}%2d${C_GRY}]${C_RST} %-45s ${C_LBL}%-20s${C_RST} ${C_GRY}[%s%s%s%s%s%s | %s %s]${C_RST}\n" \
-               $count "$p_id" "$this_arch" "$st_f" "$st_p" "$st_s" "$st_m" "$st_h" "$st_pt" "$st_oi" "$st_os"
+        # Вывод (в CLI режиме не рисуем таблицу)
+        if [ -z "$CLI_CMD" ]; then
+            printf "    ${C_GRY}[${C_KEY}%2d${C_GRY}]${C_RST} %-45s ${C_LBL}%-20s${C_RST} ${C_GRY}[%s%s%s%s%s%s | %s %s]${C_RST}\n" \
+                   $count "$p_id" "$this_arch" "$st_f" "$st_p" "$st_s" "$st_m" "$st_h" "$st_pt" "$st_oi" "$st_os"
+        fi
     done
+
+    # === CLI: диспетчеризация (после построения списка профилей) ===
+    if [ -n "$CLI_CMD" ]; then
+        if [ "$CLI_CMD" = "BUILD_ALL" ]; then
+            if [ "$BUILD_MODE" == "SOURCE" ]; then
+                echo -e "${C_ERR}${L_WARN_MASS}${C_RST}"
+                exit 1
+            fi
+            LOG_DIR="firmware_output/.build_logs/$(date +%Y%m%d-%H%M%S)"
+            mkdir -p "$LOG_DIR"
+            echo -e "\n${C_VAL}${L_PARALLEL_BUILDS_START}${C_RST} ${C_LBL}$LOG_DIR${C_RST}\n"
+            pids=()
+            declare -A pid_map
+            declare -A start_time_map
+            printf "    %-65s | %s\n" "${C_GRY}${L_LOG_HEAD_PROF}" "${L_LOG_HEAD_FILE}${C_RST}"
+            printf "    %s\n" "${C_GRY}--------------------------------------------------------------------------------------------------------------------${C_RST}"
+            for p in "${profiles[@]}"; do
+                p_id=$(echo "${p%.conf}" | tr -d '\r')
+                log_file="$LOG_DIR/${p_id}.log"
+                printf "    %-65s | %s\n" "${C_KEY}${L_LOG_START} $p_id${C_RST}" "${C_LBL}${log_file}${C_RST}"
+                build_routine "$p" > "$log_file" 2>&1 &
+                pid=$!
+                pids+=($pid)
+                pid_map[$pid]="$p_id"
+                start_time_map[$pid]=$(date +%s)
+                sleep 1
+            done
+            echo -e "\n${C_OK}${L_ALL_BUILDS_LAUNCHED}${C_RST}"
+            echo -e "${C_LBL}${L_MONITOR_HINT}${C_RST}\n"
+            running_pids=("${pids[@]}")
+            spinner=("/" "-" "\\" "|")
+            spin_idx=0
+            while [ ${#running_pids[@]} -gt 0 ]; do
+                still_running=()
+                for pid in "${running_pids[@]}"; do
+                    if kill -0 "$pid" 2>/dev/null; then
+                        still_running+=("$pid")
+                    else
+                        end_ts=$(date +%s)
+                        start_ts=${start_time_map[$pid]}
+                        duration=$((end_ts - start_ts))
+                        dm=$((duration / 60))
+                        ds=$((duration % 60))
+                        time_str="${dm}m ${ds}s"
+                        printf "\r%120s\r" " "
+                        if ! wait "$pid"; then
+                            printf "${C_ERR}${L_LOG_FAIL_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
+                        else
+                            printf "${C_OK}${L_LOG_OK_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
+                        fi
+                    fi
+                done
+                running_pids=("${still_running[@]}")
+                if [ ${#running_pids[@]} -gt 0 ]; then
+                    running_names=""
+                    for pid in "${running_pids[@]}"; do running_names+="${pid_map[$pid]} "; done
+                    [ ${#running_names} -gt 60 ] && running_names="${running_names:0:57}..."
+                    printf "\r${C_LBL}[%s]${C_RST} ${L_WAITING_FOR_BUILDS} (%d left): ${C_VAL}%-60s${C_RST}" "${spinner[$spin_idx]}" "${#running_pids[@]}" "$running_names"
+                fi
+                sleep 0.5
+                spin_idx=$(( (spin_idx+1) % 4 ))
+            done
+            printf "\r%120s\r" " "
+            echo -e "${C_OK}${L_ALL_BUILDS_DONE}${C_RST}"
+            exit 0
+        fi
+        dispatch_cli
+    fi
 
     echo -e "    ${C_GRY}────────────────────────────────────────────────────────────────────────────────────────────────────────────${C_RST}"
     echo -e "    ${L_LEGEND_IND}"

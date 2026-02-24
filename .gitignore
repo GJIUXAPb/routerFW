@@ -13,5 +13,9 @@
 /reverse/
 debug.md
 
+# Tester (local runs, log overwritten each run)
+tester_log_*.md
+tester_tmp_*_out.txt
+
 # Docker runtime
 .docker_tmp/
