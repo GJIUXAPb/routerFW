@@ -35,6 +35,6 @@ Index and text docs link to these; ARCHITECTURE_en.md → diagram_en, ARCHITECTU
 
 ## Audit Files
 
-- `docs/audit.md`, `audit_cto.md`, `rax_audit.md` — project analysis documents
+- `docs/audit.md` — project analysis document (при необходимости: `audit_cto.md`, `rax_audit.md`)
 - `GEMINI.md` — AI-generated architecture overview
 - `pub.md` — release notes

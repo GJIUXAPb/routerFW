@@ -21,7 +21,7 @@ Remote: https://github.com/iqubik/routerFW.git, branch: main.
 | `_Builder.sh` / `_Builder.bat` | Main entry points: interactive menu or CLI args (build orchestration, scripted/CI runs) |
 | `tester.sh` / `tester.bat` | First versions of CLI test harnesses (drive builders via args, check output) |
 | `system/` | Core build system (Dockerfiles, compose, builders, wizards) |
-| `system/lang/` | Localization dictionaries (`ru.env`, `en.env` — unified pseudo-format) |
+| `system/lang/` | Localization dictionaries (`ru.env`, `en.env` — unified pseudo-format; другие варианты вроде `*.bat.env`/`*.sh.env` могут присутствовать, но билдеры загружают только `ru.env`/`en.env`) |
 | `scripts/` | Utilities (hooks.sh, diag.sh, packager.sh, upgrade.sh, show_pkgs.sh) |
 | `profiles/*.conf` | Build profile configurations |
 | `custom_files/<profile>/` | File overlay (maps to `/` in firmware) |
@@ -33,7 +33,7 @@ Remote: https://github.com/iqubik/routerFW.git, branch: main.
 | `docs/` | Tutorials (Russian + English). **Architecture tetris** picture is embedded only in `docs/index.md` and `docs/index.en.md` (not in README). |
 | `_packer.sh` / `_packer.bat` | Packs project into self-extracting distribution |
 | `_unpacker.sh` / `_unpacker.bat` | Self-extracting archives (base64, DO NOT READ) |
-| `.dockerignore` | Excludes `firmware_output/`, `custom_files/`, `.git/` etc. from Docker build context (критично — `firmware_output/` может весить 10+ ГБ) |
+| `.dockerignore` | Excludes `firmware_output/`, `custom_files/`, `custom_packages/`, `src_packages/`, `custom_patches/`, `profiles/`, `.git/`, `docs/`, `_unpacker.*` from Docker build context (критично — `firmware_output/` может весить 10+ ГБ) |
 | `.cursorignore` | Cursor index exclusions: mirrors toxic files, private dirs, `firmware_output/`, test envs (`nl_test/`, `nw_test/`), `.docker_tmp/` — aligns with `.gitignore` and project rules |
 
 ## Tech Stack
@@ -71,7 +71,7 @@ After a successful Source Builder run, both `.bat` and `.sh` detect `*imagebuild
 
 ## _Builder.sh — Linux-специфичные возможности (отсутствуют в .bat)
 
-- **Параллельная массовая сборка** — команда `A` запускает все профили одновременно в фоне (`&`), пишет раздельные лог-файлы с timestamp в `firmware_output/.build_logs_<ts>/`, отображает спиннер с именами активных сборок и затраченным временем каждой
+- **Параллельная массовая сборка** — команда `A` запускает все профили одновременно в фоне (`&`), пишет раздельные лог-файлы с timestamp в `firmware_output/.build_logs/YYYYMMDD-HHMMSS/`, отображает спиннер с именами активных сборок и затраченным временем каждой
 - **Docker Credentials Fix** — на старте копирует реальный `~/.docker/config.json` в `$PROJECT_DIR/.docker_tmp/`, удаляя только `credsStore`/`credHelpers`. Это сохраняет proxy-настройки и прочие параметры, но исключает credential store, конфликтующий с безголовым запуском
 - **Ctrl+C handler** — `trap cleanup_exit SIGINT SIGTERM`: принудительно останавливает все контейнеры (`release_locks "ALL"`), удаляет `.docker_tmp/`
 - **Ghost-файлы WSL/NTFS** — при инициализации папок профилей обрабатывает "призрачные" файлы, которые NTFS показывает в WSL

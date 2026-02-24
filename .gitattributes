@@ -16,6 +16,7 @@ system/lang/*.env text eol=lf
 *.mdc  text eol=lf
 Dockerfile text eol=lf
 .dockerignore text eol=lf
+.gitignore text eol=lf
 
 # Специальные файлы без расширения
 profiles/personal.flag text eol=lf
