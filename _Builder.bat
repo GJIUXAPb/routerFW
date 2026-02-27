@@ -1100,6 +1100,7 @@ if not exist "_unpacker.bat" (
     exit /b 1
 )
 set "CHK_N=0"
+echo %C_LBL%[CHECKSUM]%C_RST% %L_CHKSUM_ALL_START%
 for /f "tokens=*" %%F in ('findstr "BEGIN_B64_" _unpacker.bat 2^>nul') do (
     set "line=%%F"
     set "line=!line:*BEGIN_B64_ =!"
