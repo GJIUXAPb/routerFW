@@ -177,21 +177,33 @@ process_file() {
     local staged="$temp_dir/$id.staged"
 
     if [ -f "$file" ]; then
-        # Копируем файл
-        cp "$file" "$staged"
+        # Точная копия логики из _packer.bat (PowerShell) с помощью awk:
+        # Читает файл, сохраняет его EOL, удаляет пустые строки и старый MD5 с конца
+        awk '
+        BEGIN { has_cr = 0 }
+        {
+            if (NR == 1 && /\r$/) has_cr = 1;
+            sub(/\r$/, "");
+            lines[NR] = $0;
+        }
+        END {
+            last = NR;
+            while (last > 0) {
+                if (lines[last] ~ /^[ \t]*$/) {
+                    last--;
+                } else if (lines[last] ~ /^[ \t]*(::|#)?[ \t]*checksum:MD5=[0-9a-fA-F]{32}[ \t]*$/) {
+                    last--;
+                } else {
+                    break;
+                }
+            }
+            eol = has_cr ? "\r\n" : "\n";
+            for (i = 1; i <= last; i++) {
+                printf "%s%s", lines[i], eol;
+            }
+        }' "$file" > "$staged"
         
-        # Если последняя строка — чексумма, удаляем её
-        local lastline
-        lastline=$(tail -n 1 "$staged" 2>/dev/null)
-        if [[ "$lastline" =~ checksum:MD5=[0-9a-fA-F]{32} ]]; then
-             sed -i '$d' "$staged"
-        fi
-
-        # FIX: Нормализация концов строк (удалить все пустые в конце, добавить одну).
-        # $(cat) удаляет все trailing newlines. printf добавляет ровно одну.
-        local content
-        content=$(cat "$staged")
-        printf "%s\n" "$content" > "$staged"
+        # Считаем хеш
         
         # Считаем хеш
         local hash
