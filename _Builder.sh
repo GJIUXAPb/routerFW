@@ -383,8 +383,9 @@ add_checksum_to_file() {
     hash=$(md5sum < "$staged" | cut -d' ' -f1)
     hash="${hash,,}"
     local prefix
-    prefix=$(checksum_comment_prefix "$file")
-    printf '\n%s checksum:MD5=%s\n' "$prefix" "$hash" >> "$staged"
+    prefix=$(checksum_comment_prefix "$file")    
+    # FIX: Убраны \n в начале и в конце формата, чтобы не было пустой строки после суммы
+    printf '%s checksum:MD5=%s' "$prefix" "$hash" >> "$staged"
     mv "$staged" "$file"
 }
 
