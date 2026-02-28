@@ -1,7 +1,7 @@
-# RouterFW — Релиз 4.46
+# RouterFW — Релиз 4.48
 
-**Версия:** 4.46  
-**Период изменений:** от тега 4.45 до текущего состояния
+**Версия:** 4.48  
+**Период изменений:** от тега 4.46 до текущего состояния
 
 ---
 
@@ -9,17 +9,34 @@
 
 ### Что нового
 
-- **Новые CLI-команды `check` и `check-all`.**  
-  Добавлены команды для работы с контрольными суммами файлов:  
-  — `check-all` — добавить или обновить метку `checksum:MD5` во все файлы, перечисленные в unpacker.  
-  — `check <profile_id>` — добавить или обновить checksum в конкретном файле профиля `profiles/<ID>.conf`.  
-  Это позволяет верифицировать целостность конфигурационных файлов и отслеживать их изменения.
+- **Новая CLI-команда `check-clear`.**  
+  Добавлена команда для удаления контрольных сумм из файлов:  
+  — Без аргументов или с `all` — очищает `checksum:MD5` из всех файлов, перечисленных в unpacker, а также из самого unpacker.  
+  — С указанным ID профиля — очищает checksum только из конкретного файла `profiles/<ID>.conf`.
+
+- **Улучшение скриптов упаковщика (`_packer.sh`, `_packer.bat`).**  
+  Теперь при упаковке генерируется таблица MD5-хешей для распаковщика.  
+  MD5 каждого файла сохраняется и передается в unpacker для логирования при верификации.
+
+- **Улучшение скриптов распаковщика (`_unpacker.sh`, `_unpacker.bat`).**  
+  Теперь при восстановлении файлов в лог выводится MD5-хеш рядом с каждым файлом.  
+  Формат: `[UNPACK] Recover: <filename> - md5(<hash>)`.
 
 - **Обновление языковых словарей.**  
-  В `system/lang/ru.env` и `system/lang/en.env` добавлены новые ключи для команд работы с checksum: `L_CLI_DESC_CHKSUM_ALL`, `L_CLI_DESC_CHKSUM`, `L_CHKSUM_*`.
+  В `system/lang/ru.env` и `system/lang/en.env` добавлен новый ключ `L_CLI_DESC_CHKSUM_CLEAR` для команды `check-clear`.  
+  Обновлен текст ключа `L_CHKSUM_ALL_START`.
 
-- **Версия обновлена до 4.46.**  
-  Номер версии синхронизирован в `_Builder.bat` и `_Builder.sh`.
+- **Обновление документации.**  
+  Команда `check-clear` добавлена в таблицы CLI команд в файлах:  
+  — `README.md`  
+  — `README.en.md`  
+  — `docs/ARCHITECTURE_diagram_ru.md`  
+  — `docs/ARCHITECTURE_diagram_en.md`
+
+- **Обновление архивов Docker Builder.**  
+  Новые сборки:  
+  — `routerFW_LinuxDockerBuilder_v01.03.2026_01-40.tar.gz`  
+  — `routerFW_WinDockerBuilder_v01.03.2026_01-41.zip`
 
 ---
 
@@ -27,18 +44,35 @@
 
 ### What's New
 
-- **New CLI commands `check` and `check-all`.**  
-  Added commands for file checksum handling:  
-  — `check-all` — add or update the `checksum:MD5` tag in all files listed in the unpacker.  
-  — `check <profile_id>` — add or update the checksum in a specific profile file `profiles/<ID>.conf`.  
-  This allows verifying configuration file integrity and tracking changes.
+- **New CLI command `check-clear`.**  
+  Added a command to remove checksums from files:  
+  — Without arguments or with `all` — clears `checksum:MD5` from all files listed in the unpacker, plus the unpacker itself.  
+  — With a specific profile ID — clears checksum only from that specific `profiles/<ID>.conf` file.
+
+- **Enhanced packer scripts (`_packer.sh`, `_packer.bat`).**  
+  Now generates an MD5 hash table for the unpacker during packaging.  
+  Each file's MD5 is saved and passed to the unpacker for verification logging.
+
+- **Enhanced unpacker scripts (`_unpacker.sh`, `_unpacker.bat`).**  
+  Now displays the MD5 hash next to each recovered file in the log.  
+  Format: `[UNPACK] Recover: <filename> - md5(<hash>)`.
 
 - **Language dictionary updates.**  
-  New keys for checksum commands added to `system/lang/ru.env` and `system/lang/en.env`: `L_CLI_DESC_CHKSUM_ALL`, `L_CLI_DESC_CHKSUM`, `L_CHKSUM_*`.
+  Added new key `L_CLI_DESC_CHKSUM_CLEAR` for the `check-clear` command to `system/lang/ru.env` and `system/lang/en.env`.  
+  Updated the `L_CHKSUM_ALL_START` text.
 
-- **Version bumped to 4.46.**  
-  Version number synchronized in `_Builder.bat` and `_Builder.sh`.
+- **Documentation updated.**  
+  Added `check-clear` command to CLI tables in:  
+  — `README.md`  
+  — `README.en.md`  
+  — `docs/ARCHITECTURE_diagram_ru.md`  
+  — `docs/ARCHITECTURE_diagram_en.md`
+
+- **Updated Docker Builder archives.**  
+  New builds:  
+  — `routerFW_LinuxDockerBuilder_v01.03.2026_01-40.tar.gz`  
+  — `routerFW_WinDockerBuilder_v01.03.2026_01-41.zip`
 
 ---
 
-*Release notes for GitHub — summary of changes from tag 4.45 to current 4.46.*
+*Release notes for GitHub — summary of changes from tag 4.46 to current 4.48.*
