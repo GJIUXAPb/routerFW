@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Тетрис версий: модули из ARCHITECTURE_diagram_ru.md, ритм из CHANGELOG (даты релизов).
 # file: system/architecture-tetris.ps1

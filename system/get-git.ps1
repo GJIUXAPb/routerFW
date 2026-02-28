@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Выгружает тексты GitHub-релизов по тегам в CHANGELOG.md в корне проекта.
 # file: system/get-git.ps1 v1.1

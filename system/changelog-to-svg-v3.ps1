@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     V3: виджеты из CHANGELOG — heatmap, river, pulse bars, stats strip (только новые файлы, текущий код не трогаем).
 # file: system/changelog-to-svg-v3.ps1

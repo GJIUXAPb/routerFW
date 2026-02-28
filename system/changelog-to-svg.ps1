@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Парсит CHANGELOG.md, считает метрики по релизам и генерирует анимированные SVG (light/dark).
 # file: system/changelog-to-svg.ps1
