@@ -271,6 +271,7 @@ if not "!p1!"=="" (
     if /i "!c1!"=="state"      set "CLI_CMD=STATE"    & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
     if /i "!c1!"=="s"         set "CLI_CMD=STATE"    & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
     if /i "!c1!"=="check-all"  set "CLI_CMD=CHECKSUM_ALL" & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
+    if /i "!c1!"=="check-clear" set "CLI_CMD=CHECKSUM_CLEAR" & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
     if /i "!c1!"=="check"      set "CLI_CMD=CHECKSUM"     & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
     if /i "!c1!"=="help"       set "CLI_CMD=HELP"     & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
     if /i "!c1!"=="-h"         set "CLI_CMD=HELP"     & set "CLI_ARG1=!c2!" & set "CLI_ARG2=!c3!"
@@ -1002,6 +1003,7 @@ if "%CLI_CMD%"=="IMPORT" goto CLI_IMPORT
 if "%CLI_CMD%"=="CLEAN" goto CLI_CLEAN
 if "%CLI_CMD%"=="CHECKSUM_ALL" goto CLI_CHECKSUM_ALL
 if "%CLI_CMD%"=="CHECKSUM" goto CLI_CHECKSUM
+if "%CLI_CMD%"=="CHECKSUM_CLEAR" goto CLI_CHECKSUM_CLEAR
 echo !L_CLI_ERR_UNKNOWN_CMD!!CLI_CMD!!C_RST!
 exit /b 1
 
@@ -1021,6 +1023,7 @@ echo   wizard, w                                  %L_CLI_DESC_WIZARD%
 echo   clean, c              [1-6/1-3] [id/A]     %L_CLI_DESC_CLEAN%
 echo   state, s                                   %L_CLI_DESC_STATE%
 echo   check-all                                  %L_CLI_DESC_CHKSUM_ALL%
+echo   check-clear           ^<id^> / all           Clear MD5 checksums
 echo   check                 ^<id^>                 %L_CLI_DESC_CHKSUM%
 echo   help, -h, --help                           %L_CLI_DESC_HELP%
 echo.
@@ -1095,6 +1098,19 @@ del /q "!CHK_STAGED!" 2>nul
 echo   %C_GRY%-%C_RST% File: %C_VAL%!CHK_FILE!%C_RST% %C_GRY%MD5=%C_KEY%!CHK_HASH!%C_RST%
 exit /b 0
 
+:CLEAR_CHECKSUM_FROM_FILE
+set "CHK_FILE=%~1"
+if not exist "!CHK_FILE!" exit /b 1
+set "CHK_STAGED=%TEMP%\builder_chksum_clear_%RANDOM%.tmp"
+set "CHK_PATH=!CHK_FILE:\=\\!"
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$path='!CHK_PATH!'; $staged='!CHK_STAGED:\=\\!'; $enc=[System.Text.UTF8Encoding]::new($false); $content=[IO.File]::ReadAllText($path,$enc).TrimEnd([char]13,[char]10); $eol=if($content -match \"`r`n\"){\"`r`n\"}else{\"`n\"}; $lines=@($content -split \"`r?`n\"); while($lines.Count -gt 0){$last=($lines[-1] -replace \"`r$\",''); if([string]::IsNullOrWhiteSpace($last)){$lines=$lines[0..($lines.Count-2)]}elseif($last -match '^\s*#?\s*checksum:MD5=[0-9a-fA-F]{32}\s*$'){$lines=$lines[0..($lines.Count-2)]; if($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace(($lines[-1] -replace \"`r$\",''))){$lines=$lines[0..($lines.Count-2)]}}else{break}}; $cleaned=($lines -join $eol)+$eol; [IO.File]::WriteAllText($staged,$cleaned,$enc)" >nul 2>&1
+if not exist "!CHK_STAGED!" exit /b 1
+copy /y "!CHK_STAGED!" "!CHK_FILE!" >nul 2>&1
+del /q "!CHK_STAGED!" 2>nul
+echo   %C_GRY%-%C_RST% File: %C_VAL%!CHK_FILE!%C_RST% %C_GRY%MD5=%C_ERR%CLEARED%C_RST%
+exit /b 0
+
 :CLI_CHECKSUM_ALL
 if not exist "_unpacker.bat" (
     echo !C_ERR!!L_CHKSUM_ERR_NO_UNPACKER!!C_RST!
@@ -1130,6 +1146,48 @@ set "CHK_HASH="
 for /f "tokens=*" %%a in ('findstr "checksum:MD5=" "!CHK_TARGET!" 2^>nul') do set "CHK_HASH=%%a"
 set "CHK_HASH=!CHK_HASH:*checksum:MD5=!"
 echo !C_OK!!L_CHKSUM_PROFILE_OK!!C_RST! !C_VAL!!CHK_TARGET!!C_RST! !C_GRY!MD5=!CHK_HASH!!C_RST!
+exit /b 0
+
+:CLI_CHECKSUM_CLEAR
+:: Если аргумент "all" или пустой — очищаем всё
+if /i "!CLI_ARG1!"=="all" goto CLI_CHECKSUM_CLEAR_ALL
+if "!CLI_ARG1!"=="" goto CLI_CHECKSUM_CLEAR_ALL
+
+:: Если же указан конкретный ID, очищаем только его
+set "cli_trim=!CLI_ARG1: =!"
+call :CLI_RESOLVE_PROFILE
+if not defined SELECTED_CONF exit /b 1
+set "CHK_TARGET=profiles\!SELECTED_CONF!"
+if not exist "!CHK_TARGET!" (
+    echo !C_ERR!!L_CHKSUM_ERR_FILE! !CHK_TARGET!!C_RST!
+    exit /b 1
+)
+call :CLEAR_CHECKSUM_FROM_FILE "!CHK_TARGET!"
+echo !C_OK![CLEARED]!C_RST! !C_VAL!!CHK_TARGET!!C_RST!
+exit /b 0
+
+:CLI_CHECKSUM_CLEAR_ALL
+if not exist "_unpacker.bat" (
+    echo !C_ERR!!L_CHKSUM_ERR_NO_UNPACKER!!C_RST!
+    exit /b 1
+)
+set "CHK_N=0"
+echo %C_LBL%[CHECKSUM CLEAR]%C_RST% Starting global hash clearance...
+:: Очищаем сам распаковщик
+call :CLEAR_CHECKSUM_FROM_FILE "_unpacker.bat"
+set /a CHK_N+=1
+
+:: Очищаем все файлы, зарегистрированные в проекте
+for /f "tokens=*" %%F in ('findstr "BEGIN_B64_" _unpacker.bat 2^>nul') do (
+    set "line=%%F"
+    set "line=!line:*BEGIN_B64_ =!"
+    for /f "tokens=* delims= " %%a in ("!line!") do set "line=%%a"
+    if exist "!line!" (
+        call :CLEAR_CHECKSUM_FROM_FILE "!line!"
+        if not errorlevel 1 set /a CHK_N+=1
+    )
+)
+echo !C_OK!Global clearance done! Processed files: !CHK_N!!C_RST!
 exit /b 0
 
 :CLI_RESOLVE_PROFILE
@@ -1592,4 +1650,3 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJZYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJZYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJZYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=17bbbe6619234b8191646c6fd66c0f9d
