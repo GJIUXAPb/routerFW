@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-#  Unpacker (Smart Edition v2.4 SH)
+#  Unpacker (Smart Edition v2.6 SH)
 # =========================================================
 
 # Переходим в директорию скрипта
@@ -16,16 +16,18 @@ fi
 
 decode_file() {
     local target="$1"
+    local hash="$2"
     # Если файл существует - пропускаем
     if [ -f "$target" ]; then return; fi
     
     # Создаем папку
     mkdir -p "$(dirname "$target")"
-    echo "[UNPACK] Recover: $target"
+    echo "[UNPACK] Recover: $target - md5( $hash )"
     
     # Извлекаем Base64 блок между маркерами
-    # Используем awk для точного парсинга текущего файла ($0)
-    awk -v t="$target" '$0 ~ "# BEGIN_B64_ " t, $0 ~ "# END_B64_ " t' "$0" | \
+    # FIX: Используем строгое равенство (==) вместо match (~), 
+    # чтобы избежать совпадения имен файлов (например, dockerfile и dockerfile.legacy)
+    awk -v t="$target" '$0 == "# BEGIN_B64_ " t, $0 == "# END_B64_ " t' "$0" | \
     grep -v "BEGIN_B64_" | grep -v "END_B64_" | base64 -d > "$target"
     
     # Если это скрипт - даем права на исполнение
@@ -34,50 +36,50 @@ decode_file() {
     fi
 }
 
-decode_file "system/openssl.cnf"
-decode_file "system/docker-compose.yaml"
-decode_file "system/docker-compose-src.yaml"
-decode_file "system/ib_builder.sh"
-decode_file "system/src_builder.sh"
-decode_file "system/dockerfile"
-decode_file "system/dockerfile.legacy"
-decode_file "system/src.dockerfile"
-decode_file "system/src.dockerfile.legacy"
-decode_file "system/create_profile.sh"
-decode_file "system/import_ipk.sh"
-decode_file "system/lang/ru.env"
-decode_file "system/lang/en.env"
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/show_pkgs.sh"; fi
-decode_file "_Builder.sh"
-decode_file "README.md"
-decode_file "README.en.md"
-decode_file "docs/01-introduction.md"
-decode_file "docs/01-introduction.en.md"
-decode_file "docs/02-digital-twin.md"
-decode_file "docs/02-digital-twin.en.md"
-decode_file "docs/03-source-build.md"
-decode_file "docs/03-source-build.en.md"
-decode_file "docs/04-adv-source-build.md"
-decode_file "docs/04-adv-source-build.en.md"
-decode_file "docs/05-patch-sys.md"
-decode_file "docs/05-patch-sys.en.md"
-decode_file "docs/06-rax3000m-emmc-flash.md"
-decode_file "docs/06-rax3000m-emmc-flash.en.md"
-decode_file "docs/07-troubleshooting-faq.md"
-decode_file "docs/07-troubleshooting-faq.en.md"
-decode_file "docs/index.md"
-decode_file "docs/index.en.md"
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/etc/uci-defaults/99-permissions.sh"; fi
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/diag.sh"; fi
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/hooks.sh"; fi
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/upgrade.sh"; fi
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/packager.sh"; fi
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "profiles/giga_24105_main_full.conf"; fi
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "profiles/rax3000m_emmc_test_new.conf"; fi
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "profiles/xiaomi_4a_gigabit_23056_full.conf"; fi
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "profiles/tplink_841n_v9_190710_full.conf"; fi
-if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "profiles/friendlyarm_nanopi_r3s_24105_ow_full.conf"; fi
-decode_file "custom_files/rax3000m_emmc_test_new/hooks.sh"
+decode_file "system/openssl.cnf" "52f5bb86b33550b5425808a2f4362830"
+decode_file "system/docker-compose.yaml" "3f95879910854e4f3ba92510936b335a"
+decode_file "system/docker-compose-src.yaml" "faaea133fefeaef20f5b465f4520b753"
+decode_file "system/ib_builder.sh" "4f6d0e6cb9e9c909b6b9af97445b64e1"
+decode_file "system/src_builder.sh" "2adcbe1440c01742d59bc9682af02966"
+decode_file "system/dockerfile" "d4476ad28bb7fc5cda39c5d43e83fae1"
+decode_file "system/dockerfile.legacy" "a85040c6e48727022368894b10987199"
+decode_file "system/src.dockerfile" "212080ed518515a262002f8b9f41b1bd"
+decode_file "system/src.dockerfile.legacy" "9872f3bba66520acf68cb00bb77c6071"
+decode_file "system/create_profile.sh" "fb74df4b2f329e612d61a538550af969"
+decode_file "system/import_ipk.sh" "bd19e3719285ef2bd856f99fea9434db"
+decode_file "system/lang/ru.env" "396eb9ff59cfafc76590b0d910491408"
+decode_file "system/lang/en.env" "71a469748edf656a0c0da3e67469882c"
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/show_pkgs.sh" "e307e585965ae4c95383902778c0edee"; fi
+decode_file "_Builder.sh" "33b239de81f7727eb7f77ad12c91b2c4"
+decode_file "README.md" "718b44e3eddf43be9055f6f3c19cf8bd"
+decode_file "README.en.md" "4125dc29ada92eb71693d6468fd48f6d"
+decode_file "docs/01-introduction.md" "d24278c2d41f37eb839286e7d0e5299d"
+decode_file "docs/01-introduction.en.md" "f0de1a2a6d6b2718beca658d93e9bad6"
+decode_file "docs/02-digital-twin.md" "3a2ed612eed3420f05dda184c6154264"
+decode_file "docs/02-digital-twin.en.md" "ca80553921c64b5c9165421e199815e9"
+decode_file "docs/03-source-build.md" "f23383c5cf17a037d13877250f36c392"
+decode_file "docs/03-source-build.en.md" "a446e4280c68ad9b83f15235c2babdbc"
+decode_file "docs/04-adv-source-build.md" "2b3ba9dcad53321952e781fc82044307"
+decode_file "docs/04-adv-source-build.en.md" "aab3192801545dfb0a79f8c11b1a38a9"
+decode_file "docs/05-patch-sys.md" "eb4a0163d328921144df9c8aa41fe55a"
+decode_file "docs/05-patch-sys.en.md" "4825415fca73c3e367cead9cb6ee23c4"
+decode_file "docs/06-rax3000m-emmc-flash.md" "32e9d09d87d24f29e8451be84fb80d0e"
+decode_file "docs/06-rax3000m-emmc-flash.en.md" "1ddb96bda7e52f4c7c51c03118f835ad"
+decode_file "docs/07-troubleshooting-faq.md" "91fc24b48bb83e2f43c314242c6023c7"
+decode_file "docs/07-troubleshooting-faq.en.md" "f3818381f61d1bdb66959335791eb0f5"
+decode_file "docs/index.md" "d8d272f1427a6cd1d5fe09a528c04342"
+decode_file "docs/index.en.md" "507f62b17aa49ec905e107b662c0dd0d"
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/etc/uci-defaults/99-permissions.sh" "30db05ffa34c04acfea77f74798553d9"; fi
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/diag.sh" "a8fce61c8d478440f3d9ff75c6779c8e"; fi
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/hooks.sh" "56e33e5bfbfd6e988eae531978affbe8"; fi
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/upgrade.sh" "260ae10b0344325169c7e1c46629c91f"; fi
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "scripts/packager.sh" "9e6e8977e3a7a72f6abfdec16ee82c2e"; fi
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "profiles/giga_24105_main_full.conf" "9037fcd93660a09226003fc1edc849bf"; fi
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "profiles/rax3000m_emmc_test_new.conf" "75eaca8ed2dbf6c20471cd8251f38365"; fi
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "profiles/xiaomi_4a_gigabit_23056_full.conf" "8563361575e969ff8ef2ed3cdff08f54"; fi
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "profiles/tplink_841n_v9_190710_full.conf" "f36d2f90fa1b91f243397213d32f7c68"; fi
+if [ $SKIP_DEFAULTS -eq 0 ]; then decode_file "profiles/friendlyarm_nanopi_r3s_24105_ow_full.conf" "d2f6a86406c286409d721e2ba5c901aa"; fi
+decode_file "custom_files/rax3000m_emmc_test_new/hooks.sh" "107d814b05b5c4549acda9e936709b10"
 
 mkdir -p profiles
 if [ ! -f "profiles/personal.flag" ]; then

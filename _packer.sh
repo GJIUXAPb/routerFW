@@ -1,6 +1,6 @@
 #!/bin/bash
 # file: _packer.sh
-PACKER_VER="2.4"
+PACKER_VER="2.6"
 # Multi-threaded Base64 Resource Storage (checksum). Версия: PACKER_VER
 
 # Гарантируем работу в папке скрипта
@@ -19,7 +19,6 @@ echo -e "${C_LBL}========================================${C_RST}"
 echo ""
 
 # --- 1. Список файлов для упаковки ---
-# Синхронизировано с .bat версией
 FILES=(
 # --- Основные файлы ---
     "system/openssl.cnf"
@@ -78,8 +77,8 @@ rm -f "$NEW_UNPACKER"
 rm -rf "$TEMP_DIR"
 mkdir -p "$TEMP_DIR"
 
-# --- 2. Генерация логики распаковщика ---
-echo -e "[PACKER] Создание логики распаковщика..."
+# --- 2. Генерация шапки распаковщика ---
+echo -e "[PACKER] Создание структуры распаковщика..."
 
 {
     echo "#!/bin/bash"
@@ -102,16 +101,18 @@ fi
 
 decode_file() {
     local target="$1"
+    local hash="$2"
     # Если файл существует - пропускаем
     if [ -f "$target" ]; then return; fi
     
     # Создаем папку
     mkdir -p "$(dirname "$target")"
-    echo "[UNPACK] Recover: $target"
+    echo "[UNPACK] Recover: $target - md5( $hash )"
     
     # Извлекаем Base64 блок между маркерами
-    # Используем awk для точного парсинга текущего файла ($0)
-    awk -v t="$target" '$0 ~ "# BEGIN_B64_ " t, $0 ~ "# END_B64_ " t' "$0" | \
+    # FIX: Используем строгое равенство (==) вместо match (~), 
+    # чтобы избежать совпадения имен файлов (например, dockerfile и dockerfile.legacy)
+    awk -v t="$target" '$0 == "# BEGIN_B64_ " t, $0 == "# END_B64_ " t' "$0" | \
     grep -v "BEGIN_B64_" | grep -v "END_B64_" | base64 -d > "$target"
     
     # Если это скрипт - даем права на исполнение
@@ -122,52 +123,17 @@ decode_file() {
 
 EOF
 
-# Добавляем вызовы функций в распаковщик (Определяем защищенные файлы)
-for f in "${FILES[@]}"; do
-    IS_PROTECTED=0
-    [[ "$f" == profiles/* ]] && IS_PROTECTED=1
-    [[ "$f" == firmware_output/* ]] && IS_PROTECTED=1
-    [[ "$f" == scripts/* ]] && IS_PROTECTED=1
-
-    if [ $IS_PROTECTED -eq 1 ]; then
-        echo "if [ \$SKIP_DEFAULTS -eq 0 ]; then decode_file \"$f\"; fi" >> "$NEW_UNPACKER"
-    else
-        echo "decode_file \"$f\"" >> "$NEW_UNPACKER"
-    fi
-done
-
-# Завершение логики распаковщика
-cat << 'EOF' >> "$NEW_UNPACKER"
-
-mkdir -p profiles
-if [ ! -f "profiles/personal.flag" ]; then
-    echo "Initial setup done" > "profiles/personal.flag"
-    echo "[INFO] Created flag profiles/personal.flag"
-fi
-
-echo "[UNPACKER] Complete."
-echo "==================================="
-echo "Run ./_Builder.sh"
-echo "==================================="
-exit 0
-
-# =========================================================
-# BASE64 DATA
-# =========================================================
-EOF
-
 # --- 3. Многопоточное кодирование ---
 echo -e "[PACKER] Запуск потоков кодирования (${#FILES[@]} файлов)..."
 
-# Возвращает префикс комментария для строки checksum по пути файла: :: для .bat/.cmd, иначе #
+# Возвращает префикс комментария для строки checksum
 checksum_comment_prefix() {
     local path="$1"
     local ext="${path##*.}"
     [[ "$ext" == "bat" || "$ext" == "cmd" ]] && echo "::" || echo "#"
 }
 
-# Функция воркера (будет запущена в подоболочке)
-# Перед кодированием добавляет в конец файла строку checksum:MD5=<hash> для версионирования (updater).
+# Функция воркера
 process_file() {
     local file="$1"
     local id="$2"
@@ -175,10 +141,11 @@ process_file() {
     local out="$temp_dir/$id.chunk"
     local ready="$temp_dir/$id.ready"
     local staged="$temp_dir/$id.staged"
+    local hash_out="$temp_dir/$id.md5"
 
     if [ -f "$file" ]; then
-        # Точная копия логики из _packer.bat (PowerShell) с помощью awk:
-        # Читает файл, сохраняет его EOL, удаляет пустые строки и старый MD5 с конца
+        # Подготовка файла (Оригинальная логика AWK)
+        # Удаляет BOM, CRLF и старый checksum
         awk '
         BEGIN { has_cr = 0 }
         {
@@ -203,16 +170,18 @@ process_file() {
             }
         }' "$file" > "$staged"
         
-        # Считаем хеш
-        
-        # Считаем хеш
+        # Считаем хеш (для staged версии без checksum строки)
         local hash
         hash=$(md5sum < "$staged" | cut -d' ' -f1)
         hash="${hash,,}"
+        
+        # Сохраняем хеш для распаковщика
+        echo "$hash" > "$hash_out"
+
         local prefix
         prefix=$(checksum_comment_prefix "$file")
         
-        # FIX: Убраны \n в начале и в конце строки формата
+        # Дописываем новую checksum строку
         printf '%s checksum:MD5=%s' "$prefix" "$hash" >> "$staged"
         
         echo "" > "$out"
@@ -221,8 +190,9 @@ process_file() {
         echo "# END_B64_ $file" >> "$out"
         rm -f "$staged"
     else
-        # Заглушка, если файла нет (чтобы не ломать структуру)
+        # Заглушка
         echo "" > "$out"
+        echo "unknown_hash" > "$hash_out"
         echo -e "${C_ERR}   [SKIP] Файл '$file' не найден.${C_RST}"
     fi
     # Сигнализируем о готовности
@@ -231,18 +201,14 @@ process_file() {
 
 # Запуск процессов в фоне
 for i in "${!FILES[@]}"; do
-    # Запускаем в фоне (&)
     process_file "${FILES[$i]}" "$i" "$TEMP_DIR" &
 done
 
-# Цикл ожидания с прогресс-баром
+# Цикл ожидания
 TOTAL=${#FILES[@]}
 while true; do
     DONE=$(ls -1 "$TEMP_DIR"/*.ready 2>/dev/null | wc -l)
-    
-    # Рисуем прогресс
     echo -ne "\r[PACKER] Progress: $DONE / $TOTAL   "
-    
     if [ "$DONE" -ge "$TOTAL" ]; then
         break
     fi
@@ -250,9 +216,54 @@ while true; do
 done
 echo ""
 
-echo -e "[PACKER] Все потоки завершены. Сборка финального файла..."
+echo -e "[PACKER] Все потоки завершены. Генерация логики и сборка..."
 
-# --- 4. Сборка и финализация ---
+# --- 4. Финализация распаковщика ---
+
+# 4.1 Генерация вызовов функций
+for i in "${!FILES[@]}"; do
+    FILE="${FILES[$i]}"
+    HASH_FILE="$TEMP_DIR/$i.md5"
+    
+    if [ -f "$HASH_FILE" ]; then
+        F_HASH=$(cat "$HASH_FILE")
+    else
+        F_HASH="unknown"
+    fi
+
+    IS_PROTECTED=0
+    [[ "$FILE" == profiles/* ]] && IS_PROTECTED=1
+    [[ "$FILE" == firmware_output/* ]] && IS_PROTECTED=1
+    [[ "$FILE" == scripts/* ]] && IS_PROTECTED=1
+
+    if [ $IS_PROTECTED -eq 1 ]; then
+        echo "if [ \$SKIP_DEFAULTS -eq 0 ]; then decode_file \"$FILE\" \"$F_HASH\"; fi" >> "$NEW_UNPACKER"
+    else
+        echo "decode_file \"$FILE\" \"$F_HASH\"" >> "$NEW_UNPACKER"
+    fi
+done
+
+# 4.2 Завершение скрипта
+cat << 'EOF' >> "$NEW_UNPACKER"
+
+mkdir -p profiles
+if [ ! -f "profiles/personal.flag" ]; then
+    echo "Initial setup done" > "profiles/personal.flag"
+    echo "[INFO] Created flag profiles/personal.flag"
+fi
+
+echo "[UNPACKER] Complete."
+echo "==================================="
+echo "Run ./_Builder.sh"
+echo "==================================="
+exit 0
+
+# =========================================================
+# BASE64 DATA
+# =========================================================
+EOF
+
+# 4.3 Прикрепление данных
 for i in "${!FILES[@]}"; do
     if [ -f "$TEMP_DIR/$i.chunk" ]; then
         cat "$TEMP_DIR/$i.chunk" >> "$NEW_UNPACKER"
@@ -265,7 +276,7 @@ chmod +x "$NEW_UNPACKER"
 # Удаляем временную папку
 rm -rf "$TEMP_DIR"
 
-# --- 5. Создание архива (tar.gz для Linux) ---
+# --- 5. Создание архива ---
 ZIP_DATE=$(date +"%d.%m.%Y_%H-%M")
 ARCHIVE_NAME="routerFW_LinuxDockerBuilder_v$ZIP_DATE.tar.gz"
 
