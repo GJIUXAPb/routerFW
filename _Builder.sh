@@ -407,6 +407,7 @@ add_checksum_to_file() {
     # поэтому printf безопасно начнет запись с новой строки.
     printf '%s checksum:MD5=%s' "$prefix" "$hash" >> "$staged"
     mv "$staged" "$file"
+    echo -e "  ${C_GRY}-${C_RST} File: ${C_VAL}${file}${C_RST} ${C_GRY}MD5=${C_KEY}${hash}${C_RST}"
 }
 
 extract_files_from_unpacker() {
@@ -1614,4 +1615,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=28fa8d7a21da60681a70438d203ec4f0
+# checksum:MD5=2ccc89430ba94412e83a85ad745d1385
