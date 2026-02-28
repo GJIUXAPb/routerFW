@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-set "PACKER_VER=2.4"
+set "PACKER_VER=2.5"
 cls
 chcp 65001 >nul
 
@@ -68,7 +68,7 @@ call :ADD_FILE "profiles\tplink_841n_v9_190710_full.conf"
 call :ADD_FILE "profiles\friendlyarm_nanopi_r3s_24105_ow_full.conf"
 call :ADD_FILE "custom_files\rax3000m_emmc_test_new\hooks.sh"
 
-:: Настройки путей (Используем абсолютные пути во избежание ошибок)
+:: Настройки путей
 set "NEW_UNPACKER_FILE=_unpacker.bat.new"
 set "TEMP_DIR_NAME=temp_packer_worker"
 set "FULL_TEMP_DIR=%~dp0%TEMP_DIR_NAME%"
@@ -78,8 +78,8 @@ if exist "%NEW_UNPACKER_FILE%" del /f /q "%NEW_UNPACKER_FILE%"
 if exist "%FULL_TEMP_DIR%" rd /s /q "%FULL_TEMP_DIR%"
 md "%FULL_TEMP_DIR%"
 
-:: === 2. Генерируем логическую часть _unpacker.bat ===
-echo [PACKER] Создание логики распаковщика...
+:: === 2. Генерируем ШАПКУ _unpacker.bat ===
+echo [PACKER] Создание структуры распаковщика...
 
 (
     echo @echo off
@@ -101,23 +101,60 @@ echo [PACKER] Создание логики распаковщика...
     echo.
 ) > "%NEW_UNPACKER_FILE%"
 
-:: Генерируем вызовы функций
+:: === 3. МНОГОПОТОЧНАЯ ГЕНЕРАЦИЯ BASE64 ===
+echo.
+echo [PACKER] Запуск потоков кодирования (%IDX% файлов)...
+
+set "ACTIVE_TASKS=0"
+for /L %%i in (1,1,%IDX%) do (
+    set "CURRENT_FILE=!FILE_%%i!"
+    if exist "!CURRENT_FILE!" (
+        rem Тройные кавычки для защиты пробелов в пути к скрипту
+        start "" /b cmd /c "call "%~f0" :WORKER "!CURRENT_FILE!" "%%i" "!FULL_TEMP_DIR!""
+        set /a ACTIVE_TASKS+=1
+    ) else (
+        echo   [SKIP] Файл '!CURRENT_FILE!' не найден.
+        echo. > "%FULL_TEMP_DIR%\%%i.ready"
+    )
+)
+
+echo [PACKER] Ожидание завершения потоков...
+
+:WAIT_LOOP
+set "DONE_COUNT=0"
+for %%A in ("%FULL_TEMP_DIR%\*.ready") do set /a DONE_COUNT+=1
+<nul set /p "=Progress: !DONE_COUNT! / !IDX!   " >con
+<nul set /p "=                          " >con
+if !DONE_COUNT! LSS !IDX! (
+    timeout /t 1 >nul
+    goto :WAIT_LOOP
+)
+echo.
+echo [PACKER] Все потоки завершены. Финализация сборки...
+
+:: === 4. Сборка финального файла ===
+:: 4.1 Добавляем вызовы функций
 for /L %%i in (1,1,%IDX%) do (
     set "FNAME=!FILE_%%i!"
     set "IS_PROTECTED=0"
+    set "F_HASH=unknown"
+    
+    if exist "%FULL_TEMP_DIR%\%%i.md5" (
+        for /f "usebackq tokens=*" %%H in ("%FULL_TEMP_DIR%\%%i.md5") do set "F_HASH=%%H"
+    )
     
     echo "!FNAME!" | findstr /C:"profiles\\" >nul && set "IS_PROTECTED=1"
     echo "!FNAME!" | findstr /C:"firmware_output\\" >nul && set "IS_PROTECTED=1"
     echo "!FNAME!" | findstr /C:"scripts\\" >nul && set "IS_PROTECTED=1"
     
     if "!IS_PROTECTED!"=="1" (
-        echo if "%%SKIP_DEFAULTS%%"=="0" call :DECODE_FILE "!FNAME!">> "%NEW_UNPACKER_FILE%"
+        echo if "%%SKIP_DEFAULTS%%"=="0" call :DECODE_FILE "!FNAME!" "!F_HASH!">> "%NEW_UNPACKER_FILE%"
     ) else (
-        echo call :DECODE_FILE "!FNAME!">> "%NEW_UNPACKER_FILE%"
+        echo call :DECODE_FILE "!FNAME!" "!F_HASH!">> "%NEW_UNPACKER_FILE%"
     )
 )
 
-:: Завершение логической части
+:: 4.2 Дописываем логику распаковки (FOOTER)
 (
     echo.
     echo :: Создаем флаг ^(если папки нет - создаем^)
@@ -129,14 +166,14 @@ for /L %%i in (1,1,%IDX%) do (
     echo.
     echo echo [UNPACKER] Complete.
     echo echo ===================================
-    echo echo Run _Builder.bat
+    echo echo Now you will Run _Builder.bat
     echo echo ===================================
     echo exit /b
     echo.
     echo :DECODE_FILE
     echo     if exist "%%~1" exit /b
     echo     if not exist "%%~dp1" md "%%~dp1" 2^>nul
-    echo     echo [UNPACK] Recover: %%~1
+    echo     echo [UNPACK] Recover: %%~1 - md5^( %%~2 ^)
     echo     powershell -Command "$ext = '%%~1'; $content = Get-Content '%%~f0'; $start = $false; $b64 = ''; foreach($line in $content){ if($line -match 'BEGIN_B64_ ' + [Regex]::Escape($ext)){ $start = $true; continue }; if($line -match 'END_B64_ ' + [Regex]::Escape($ext)){ $start = $false; break }; if($start){ $b64 += $line.Trim() } }; if($b64){ [IO.File]::WriteAllBytes($ext, [Convert]::FromBase64String($b64)) }"
     echo exit /b
     echo.
@@ -145,44 +182,7 @@ for /L %%i in (1,1,%IDX%) do (
     echo :: =========================================================
 ) >> "%NEW_UNPACKER_FILE%"
 
-:: === 3. МНОГОПОТОЧНАЯ ГЕНЕРАЦИЯ BASE64 ===
-echo.
-echo [PACKER] Запуск потоков кодирования (%IDX% файлов)...
-
-set "ACTIVE_TASKS=0"
-for /L %%i in (1,1,%IDX%) do (
-    set "CURRENT_FILE=!FILE_%%i!"
-    
-    if exist "!CURRENT_FILE!" (
-        rem Используем тройные кавычки для cmd /c, чтобы правильно передать путь к скрипту с пробелами
-        start "" /b cmd /c "call "%~f0" :WORKER "!CURRENT_FILE!" "%%i" "!FULL_TEMP_DIR!""
-        set /a ACTIVE_TASKS+=1
-    ) else (
-        echo   [SKIP] Файл '!CURRENT_FILE!' не найден.
-        rem Создаем заглушку
-        echo. > "%FULL_TEMP_DIR%\%%i.ready"
-    )
-)
-
-echo [PACKER] Ожидание завершения потоков...
-
-:WAIT_LOOP
-rem Проверяем количество готовых файлов (.ready)
-set "DONE_COUNT=0"
-for %%A in ("%FULL_TEMP_DIR%\*.ready") do set /a DONE_COUNT+=1
-
-rem Визуализация
-<nul set /p "=Progress: !DONE_COUNT! / !IDX!   " >con
-<nul set /p "=                          " >con
-
-if !DONE_COUNT! LSS !IDX! (
-    timeout /t 1 >nul
-    goto :WAIT_LOOP
-)
-echo.
-echo [PACKER] Все потоки завершены. Сборка...
-
-:: === 4. Сборка финального файла ===
+:: 4.3 Прикрепляем данные
 for /L %%i in (1,1,%IDX%) do (
     if exist "%FULL_TEMP_DIR%\%%i.chunk" (
         type "%FULL_TEMP_DIR%\%%i.chunk" >> "%NEW_UNPACKER_FILE%"
@@ -191,17 +191,13 @@ for /L %%i in (1,1,%IDX%) do (
 
 move /Y "%NEW_UNPACKER_FILE%" "_unpacker.bat" > nul
 
-:: === 5. Очистка ===
+:: === 5. Очистка и создание ZIP ===
 rd /s /q "%FULL_TEMP_DIR%"
 
-:: === 6. Создание ZIP архива ===
 echo.
 echo [PACKER] Создание резервной копии в ZIP...
-:: Получаем дату через PowerShell (формат ДД.ММ.ГГГГ_ЧЧ-ММ)
 for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "Get-Date -Format 'dd.MM.yyyy_HH-mm'"`) do set "ZIP_DATE=%%D"
-:: Формируем имя по шаблону
 set "ZIP_NAME=routerFW_WinDockerBuilder_v!ZIP_DATE!.zip"
-:: Упаковываем _unpacker.bat в zip
 powershell -NoProfile -Command "Compress-Archive -Path '_unpacker.bat' -DestinationPath '!ZIP_NAME!' -Force"
 
 echo.
@@ -223,9 +219,7 @@ set "FILE_%IDX%=%~1"
 exit /b
 
 :WORKER
-rem %2 = Имя файла
-rem %3 = Индекс (ID)
-rem %4 = Temp папка (Абсолютный путь)
+rem %2 = Файл, %3 = ID, %4 = Temp Dir
 set "W_FILE=%~2"
 set "W_ID=%~3"
 set "W_DIR=%~4"
@@ -234,9 +228,11 @@ set "W_STAGED=%W_DIR%\%W_ID%.staged"
 set "W_OUT=%W_DIR%\%W_ID%.chunk"
 set "W_RDY=%W_DIR%\%W_ID%.ready"
 
-rem 1. Подготовка staged: Удаляем старые хеши и лишние пустые строки
+rem 1. Подготовка staged: Удаляем старые хеши и лишние пустые строки.
+rem    ВАЖНО: Логика $cleaned изменена, чтобы соответствовать awk:
+rem    если файл пуст (или стал пустым), он записывается как "" (без EOL).
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$path='%W_FILE:\=\\%'; $staged='%W_STAGED:\=\\%'; $enc=[System.Text.UTF8Encoding]::new($false); $content=[IO.File]::ReadAllText($path,$enc).TrimEnd([char]13,[char]10); $eol=if($content -match \"`r`n\"){\"`r`n\"}else{\"`n\"}; $lines=@($content -split \"`r?`n\"); while($lines.Count -gt 0){$last=($lines[-1] -replace \"`r$\",''); if([string]::IsNullOrWhiteSpace($last)){$lines=$lines[0..($lines.Count-2)]}elseif($last -match '^\s*(::|#)?\s*checksum:MD5=[0-9a-fA-F]{32}\s*$'){$lines=$lines[0..($lines.Count-2)]; if($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace(($lines[-1] -replace \"`r$\",''))){$lines=$lines[0..($lines.Count-2)]}}else{break}}; $cleaned=($lines -join $eol)+$eol; [IO.File]::WriteAllText($staged,$cleaned,$enc)" >nul 2>&1
+  "$path='%W_FILE:\=\\%'; $staged='%W_STAGED:\=\\%'; $enc=[System.Text.UTF8Encoding]::new($false); $content=[IO.File]::ReadAllText($path,$enc).TrimEnd([char]13,[char]10); $eol=if($content -match \"`r`n\"){\"`r`n\"}else{\"`n\"}; $lines=@($content -split \"`r?`n\"); while($lines.Count -gt 0){$last=($lines[-1] -replace \"`r$\",''); if([string]::IsNullOrWhiteSpace($last)){$lines=$lines[0..($lines.Count-2)]}elseif($last -match '^\s*(::|#)?\s*checksum:MD5=[0-9a-fA-F]{32}\s*$'){$lines=$lines[0..($lines.Count-2)]; if($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace(($lines[-1] -replace \"`r$\",''))){$lines=$lines[0..($lines.Count-2)]}}else{break}}; $cleaned=if($lines.Count -gt 0){($lines -join $eol)+$eol}else{''}; [IO.File]::WriteAllText($staged,$cleaned,$enc)" >nul 2>&1
 
 if not exist "%W_STAGED%" (
     echo :: ERROR_PACKING_FILE: %W_FILE% > "%W_OUT%"
@@ -244,11 +240,14 @@ if not exist "%W_STAGED%" (
     exit
 )
 
-rem 2. Считаем MD5 от подготовленного файла
+rem 2. Считаем MD5
 set "W_HASH="
 for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%W_STAGED%" MD5 2^>nul') do set "W_HASH=%%H" & goto :HASH_DONE
 :HASH_DONE
 if not defined W_HASH set "W_HASH=d41d8cd98f00b204e9800998ecf8427e"
+
+rem 2.1 Сохраняем хеш
+echo %W_HASH% > "%W_DIR%\%W_ID%.md5"
 
 rem 3. Определяем префикс
 set "W_PREFIX=#"
@@ -257,12 +256,11 @@ if /i "%W_EXT%"==".bat" set "W_PREFIX=::"
 if /i "%W_EXT%"==".cmd" set "W_PREFIX=::"
 
 rem 4. Дописываем checksum
-rem Важно: $eol в начале НЕ добавляем (чтобы не было пустой строки),
-rem так как файл после шага 1 гарантированно заканчивается одним переносом.
+rem    При append EOL не добавляется, файл кончается на хеше.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$staged='%W_STAGED:\=\\%'; $enc=[System.Text.UTF8Encoding]::new($false); $txt=[IO.File]::ReadAllText($staged,$enc); $eol=if($txt -match \"`r`n\"){\"`r`n\"}else{\"`n\"}; $hash='%W_HASH%'.ToLower(); $prefix='%W_PREFIX%'; $line=$prefix+\" checksum:MD5=\"+$hash; [IO.File]::AppendAllText($staged,$line,$enc)" >nul 2>&1
 
-rem 5. Кодируем и подчищаем
+rem 5. Кодируем
 certutil -f -encode "%W_STAGED%" "%W_TMP%" >nul 2>&1
 if not exist "%W_TMP%" (
     echo :: ERROR_PACKING_FILE: %W_FILE% > "%W_OUT%"

@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 chcp 65001 >nul
 
 :: =========================================================
-::  Unpacker (Smart Edition v2.4)
+::  Unpacker (Smart Edition v2.5)
 :: =========================================================
 
 echo [UNPACKER] Resource check...
@@ -15,50 +15,50 @@ if exist "profiles\personal.flag" (
     set "SKIP_DEFAULTS=1"
 )
 
-call :DECODE_FILE "system/openssl.cnf"
-call :DECODE_FILE "system/docker-compose.yaml"
-call :DECODE_FILE "system/docker-compose-src.yaml"
-call :DECODE_FILE "system/ib_builder.sh"
-call :DECODE_FILE "system/src_builder.sh"
-call :DECODE_FILE "system/dockerfile"
-call :DECODE_FILE "system/dockerfile.legacy"
-call :DECODE_FILE "system/src.dockerfile"
-call :DECODE_FILE "system/src.dockerfile.legacy"
-call :DECODE_FILE "system/create_profile.ps1"
-call :DECODE_FILE "system/import_ipk.ps1"
-call :DECODE_FILE "system/lang/ru.env"
-call :DECODE_FILE "system/lang/en.env"
-call :DECODE_FILE "scripts/show_pkgs.sh"
-call :DECODE_FILE "_Builder.bat"
-call :DECODE_FILE "README.md"
-call :DECODE_FILE "README.en.md"
-call :DECODE_FILE "docs\01-introduction.md"
-call :DECODE_FILE "docs\01-introduction.en.md"
-call :DECODE_FILE "docs\02-digital-twin.md"
-call :DECODE_FILE "docs\02-digital-twin.en.md"
-call :DECODE_FILE "docs\03-source-build.md"
-call :DECODE_FILE "docs\03-source-build.en.md"
-call :DECODE_FILE "docs\04-adv-source-build.md"
-call :DECODE_FILE "docs\04-adv-source-build.en.md"
-call :DECODE_FILE "docs\05-patch-sys.md"
-call :DECODE_FILE "docs\05-patch-sys.en.md"
-call :DECODE_FILE "docs\06-rax3000m-emmc-flash.md"
-call :DECODE_FILE "docs\06-rax3000m-emmc-flash.en.md"
-call :DECODE_FILE "docs\07-troubleshooting-faq.md"
-call :DECODE_FILE "docs\07-troubleshooting-faq.en.md"
-call :DECODE_FILE "docs\index.md"
-call :DECODE_FILE "docs\index.en.md"
-if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "scripts\etc\uci-defaults\99-permissions.sh"
-if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "scripts\diag.sh"
-if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "scripts\hooks.sh"
-if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "scripts\upgrade.sh"
-if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "scripts\packager.sh"
-if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "profiles\giga_24105_main_full.conf"
-if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "profiles\rax3000m_emmc_test_new.conf"
-if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "profiles\xiaomi_4a_gigabit_23056_full.conf"
-if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "profiles\tplink_841n_v9_190710_full.conf"
-if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "profiles\friendlyarm_nanopi_r3s_24105_ow_full.conf"
-call :DECODE_FILE "custom_files\rax3000m_emmc_test_new\hooks.sh"
+call :DECODE_FILE "system/openssl.cnf" "52f5bb86b33550b5425808a2f4362830 "
+call :DECODE_FILE "system/docker-compose.yaml" "3f95879910854e4f3ba92510936b335a "
+call :DECODE_FILE "system/docker-compose-src.yaml" "faaea133fefeaef20f5b465f4520b753 "
+call :DECODE_FILE "system/ib_builder.sh" "4f6d0e6cb9e9c909b6b9af97445b64e1 "
+call :DECODE_FILE "system/src_builder.sh" "2adcbe1440c01742d59bc9682af02966 "
+call :DECODE_FILE "system/dockerfile" "d4476ad28bb7fc5cda39c5d43e83fae1 "
+call :DECODE_FILE "system/dockerfile.legacy" "a85040c6e48727022368894b10987199 "
+call :DECODE_FILE "system/src.dockerfile" "212080ed518515a262002f8b9f41b1bd "
+call :DECODE_FILE "system/src.dockerfile.legacy" "9872f3bba66520acf68cb00bb77c6071 "
+call :DECODE_FILE "system/create_profile.ps1" "5d277150e7c396b272b1c3a9af2c1888 "
+call :DECODE_FILE "system/import_ipk.ps1" "2282d3e1c4566a8778cb9ecc1fe3c862 "
+call :DECODE_FILE "system/lang/ru.env" "396eb9ff59cfafc76590b0d910491408 "
+call :DECODE_FILE "system/lang/en.env" "71a469748edf656a0c0da3e67469882c "
+call :DECODE_FILE "scripts/show_pkgs.sh" "e307e585965ae4c95383902778c0edee "
+call :DECODE_FILE "_Builder.bat" "38b926ccda9b1970a7c5d60b77275f7e "
+call :DECODE_FILE "README.md" "718b44e3eddf43be9055f6f3c19cf8bd "
+call :DECODE_FILE "README.en.md" "4125dc29ada92eb71693d6468fd48f6d "
+call :DECODE_FILE "docs\01-introduction.md" "d24278c2d41f37eb839286e7d0e5299d "
+call :DECODE_FILE "docs\01-introduction.en.md" "f0de1a2a6d6b2718beca658d93e9bad6 "
+call :DECODE_FILE "docs\02-digital-twin.md" "3a2ed612eed3420f05dda184c6154264 "
+call :DECODE_FILE "docs\02-digital-twin.en.md" "ca80553921c64b5c9165421e199815e9 "
+call :DECODE_FILE "docs\03-source-build.md" "f23383c5cf17a037d13877250f36c392 "
+call :DECODE_FILE "docs\03-source-build.en.md" "a446e4280c68ad9b83f15235c2babdbc "
+call :DECODE_FILE "docs\04-adv-source-build.md" "2b3ba9dcad53321952e781fc82044307 "
+call :DECODE_FILE "docs\04-adv-source-build.en.md" "aab3192801545dfb0a79f8c11b1a38a9 "
+call :DECODE_FILE "docs\05-patch-sys.md" "eb4a0163d328921144df9c8aa41fe55a "
+call :DECODE_FILE "docs\05-patch-sys.en.md" "4825415fca73c3e367cead9cb6ee23c4 "
+call :DECODE_FILE "docs\06-rax3000m-emmc-flash.md" "32e9d09d87d24f29e8451be84fb80d0e "
+call :DECODE_FILE "docs\06-rax3000m-emmc-flash.en.md" "1ddb96bda7e52f4c7c51c03118f835ad "
+call :DECODE_FILE "docs\07-troubleshooting-faq.md" "91fc24b48bb83e2f43c314242c6023c7 "
+call :DECODE_FILE "docs\07-troubleshooting-faq.en.md" "f3818381f61d1bdb66959335791eb0f5 "
+call :DECODE_FILE "docs\index.md" "d8d272f1427a6cd1d5fe09a528c04342 "
+call :DECODE_FILE "docs\index.en.md" "507f62b17aa49ec905e107b662c0dd0d "
+if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "scripts\etc\uci-defaults\99-permissions.sh" "30db05ffa34c04acfea77f74798553d9 "
+if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "scripts\diag.sh" "a8fce61c8d478440f3d9ff75c6779c8e "
+if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "scripts\hooks.sh" "56e33e5bfbfd6e988eae531978affbe8 "
+if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "scripts\upgrade.sh" "260ae10b0344325169c7e1c46629c91f "
+if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "scripts\packager.sh" "9e6e8977e3a7a72f6abfdec16ee82c2e "
+if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "profiles\giga_24105_main_full.conf" "9037fcd93660a09226003fc1edc849bf "
+if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "profiles\rax3000m_emmc_test_new.conf" "75eaca8ed2dbf6c20471cd8251f38365 "
+if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "profiles\xiaomi_4a_gigabit_23056_full.conf" "8563361575e969ff8ef2ed3cdff08f54 "
+if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "profiles\tplink_841n_v9_190710_full.conf" "f36d2f90fa1b91f243397213d32f7c68 "
+if "%SKIP_DEFAULTS%"=="0" call :DECODE_FILE "profiles\friendlyarm_nanopi_r3s_24105_ow_full.conf" "d2f6a86406c286409d721e2ba5c901aa "
+call :DECODE_FILE "custom_files\rax3000m_emmc_test_new\hooks.sh" "107d814b05b5c4549acda9e936709b10 "
 
 :: Создаем флаг (если папки нет - создаем)
 if not exist "profiles" md "profiles" 2>nul
@@ -69,14 +69,14 @@ if not exist "profiles\personal.flag" (
 
 echo [UNPACKER] Complete.
 echo ===================================
-echo Run _Builder.bat
+echo Now you will Run _Builder.bat
 echo ===================================
 exit /b
 
 :DECODE_FILE
     if exist "%~1" exit /b
     if not exist "%~dp1" md "%~dp1" 2>nul
-    echo [UNPACK] Recover: %~1
+    echo [UNPACK] Recover: %~1 - md5( %~2 )
     powershell -Command "$ext = '%~1'; $content = Get-Content '%~f0'; $start = $false; $b64 = ''; foreach($line in $content){ if($line -match 'BEGIN_B64_ ' + [Regex]::Escape($ext)){ $start = $true; continue }; if($line -match 'END_B64_ ' + [Regex]::Escape($ext)){ $start = $false; break }; if($start){ $b64 += $line.Trim() } }; if($b64){ [IO.File]::WriteAllBytes($ext, [Convert]::FromBase64String($b64)) }"
 exit /b
 
