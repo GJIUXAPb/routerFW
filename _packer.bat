@@ -232,7 +232,7 @@ rem 1. Подготовка staged: Удаляем старые хеши и ли
 rem    ВАЖНО: Логика $cleaned изменена, чтобы соответствовать awk:
 rem    если файл пуст (или стал пустым), он записывается как "" (без EOL).
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$path='%W_FILE:\=\\%'; $staged='%W_STAGED:\=\\%'; $enc=[System.Text.UTF8Encoding]::new($false); $content=[IO.File]::ReadAllText($path,$enc).TrimEnd([char]13,[char]10); $eol=if($content -match \"`r`n\"){\"`r`n\"}else{\"`n\"}; $lines=@($content -split \"`r?`n\"); while($lines.Count -gt 0){$last=($lines[-1] -replace \"`r$\",''); if([string]::IsNullOrWhiteSpace($last)){$lines=$lines[0..($lines.Count-2)]}elseif($last -match '^\s*(::|#)?\s*checksum:MD5=[0-9a-fA-F]{32}\s*$'){$lines=$lines[0..($lines.Count-2)]; if($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace(($lines[-1] -replace \"`r$\",''))){$lines=$lines[0..($lines.Count-2)]}}else{break}}; $cleaned=if($lines.Count -gt 0){($lines -join $eol)+$eol}else{''}; [IO.File]::WriteAllText($staged,$cleaned,$enc)" >nul 2>&1
+  "$path='%W_FILE:\=\\%'; $staged='%W_STAGED:\=\\%'; $isPs1=[bool]($path -match '\.ps1$'); $enc=[System.Text.UTF8Encoding]::new($isPs1); $content=[IO.File]::ReadAllText($path,$enc).TrimEnd([char]13,[char]10); $eol=if($isPs1 -or $content -match \"`r`n\"){\"`r`n\"}else{\"`n\"}; $lines=@($content -split \"`r?`n\"); while($lines.Count -gt 0){$last=($lines[-1] -replace \"`r$\",''); if([string]::IsNullOrWhiteSpace($last)){$lines=$lines[0..($lines.Count-2)]}elseif($last -match '^\s*(::|#)?\s*checksum:MD5=[0-9a-fA-F]{32}\s*$'){$lines=$lines[0..($lines.Count-2)]; if($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace(($lines[-1] -replace \"`r$\",''))){$lines=$lines[0..($lines.Count-2)]}}else{break}}; $cleaned=if($lines.Count -gt 0){($lines -join $eol)+$eol}else{''}; [IO.File]::WriteAllText($staged,$cleaned,$enc)" >nul 2>&1
 
 if not exist "%W_STAGED%" (
     echo :: ERROR_PACKING_FILE: %W_FILE% > "%W_OUT%"
@@ -258,7 +258,7 @@ if /i "%W_EXT%"==".cmd" set "W_PREFIX=::"
 rem 4. Дописываем checksum
 rem    При append EOL не добавляется, файл кончается на хеше.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$staged='%W_STAGED:\=\\%'; $enc=[System.Text.UTF8Encoding]::new($false); $txt=[IO.File]::ReadAllText($staged,$enc); $eol=if($txt -match \"`r`n\"){\"`r`n\"}else{\"`n\"}; $hash='%W_HASH%'.ToLower(); $prefix='%W_PREFIX%'; $line=$prefix+\" checksum:MD5=\"+$hash; [IO.File]::AppendAllText($staged,$line,$enc)" >nul 2>&1
+  "$path='%W_FILE:\=\\%'; $staged='%W_STAGED:\=\\%'; $isPs1=[bool]($path -match '\.ps1$'); $enc=[System.Text.UTF8Encoding]::new($isPs1); $txt=[IO.File]::ReadAllText($staged,$enc); $hash='%W_HASH%'.ToLower(); $prefix='%W_PREFIX%'; $line=$prefix+\" checksum:MD5=\"+$hash; [IO.File]::AppendAllText($staged,$line,$enc)" >nul 2>&1
 
 rem 5. Кодируем
 certutil -f -encode "%W_STAGED%" "%W_TMP%" >nul 2>&1
