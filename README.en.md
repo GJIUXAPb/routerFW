@@ -83,6 +83,8 @@ You can run the builder with arguments **without entering the interactive menu**
 | `wizard` | `w` | — | Profile creation wizard |
 | `clean` | `c` | [type] [target] | Clean (type 1–6 SRC / 1–3 IMG, 9=prune) |
 | `state` | `s` | — | Profile table with flags (F,P,S,M,H,X,OI,OS) |
+| `check` | — | `<id>` | Add/update checksum in profiles/ID.conf |
+| `check-all` | — | — | Add/update checksum:MD5 in all unpacker files |
 | `help` | `-h`, `--help` | — | Help and exit |
 
 **Positional:** `_Builder.bat 2` = build profile #2 (default mode — IB). Commands are case-insensitive.
