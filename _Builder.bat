@@ -2,7 +2,7 @@
 rem file: _Builder.bat
 rem CLI: --lang=RU|EN или -l RU|EN — язык. [ib|src] — режим. build[b], build-all[a|all], edit[e], menuconfig[k], import[i], wizard[w], clean[c], help[-h|--help]. Примеры: --lang=EN build 1, ib build 1.
 
-set "VER_NUM=4.48"
+set "VER_NUM=4.49"
 
 setlocal enabledelayedexpansion
 :: Фиксируем размер окна: 120 символов в ширину, 40 в высоту (пропуск при ROUTERFW_NO_CLS — тестер)
@@ -1077,25 +1077,69 @@ exit /b 0
 :ADD_CHECKSUM_TO_FILE
 set "CHK_FILE=%~1"
 if not exist "!CHK_FILE!" exit /b 1
-set "CHK_STAGED=%TEMP%\builder_chksum_%RANDOM%.tmp"
+set "WAS_CHANGED=0"
+
+:: Файлы для временных операций
+set "CHK_STAGED=%TEMP%\builder_chk_new_%RANDOM%.tmp"
+set "CHK_OLD_VAL=%TEMP%\builder_chk_old_%RANDOM%.tmp"
+
 set "CHK_PATH=!CHK_FILE:\=\\!"
-:: FIX: Добавлено +$eol к $cleaned, чтобы восстановить финальный перенос строки (как делает sed в sh)
+
+:: PowerShell делает всю грязную работу:
+:: 1. Читает файл.
+:: 2. Ищет старый хэш (RegEx) и сохраняет его в CHK_OLD_VAL.
+:: 3. Чистит контент от строки с хэшем и сохраняет в CHK_STAGED.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$path='!CHK_PATH!'; $staged='!CHK_STAGED:\=\\!'; $isPs1=[bool]($path -match '\.ps1$'); $enc=[System.Text.UTF8Encoding]::new($isPs1); $content=[IO.File]::ReadAllText($path,$enc).TrimEnd([char]13,[char]10); $eol=if($isPs1 -or $content -match \"`r`n\"){\"`r`n\"}else{\"`n\"}; $lines=@($content -split \"`r?`n\"); while($lines.Count -gt 0){$last=($lines[-1] -replace \"`r$\",''); if([string]::IsNullOrWhiteSpace($last)){$lines=$lines[0..($lines.Count-2)]}elseif($last -match '^\s*#?\s*checksum:MD5=[0-9a-fA-F]{32}\s*$'){$lines=$lines[0..($lines.Count-2)]; if($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace(($lines[-1] -replace \"`r$\",''))){$lines=$lines[0..($lines.Count-2)]}}else{break}}; $cleaned=($lines -join $eol)+$eol; [IO.File]::WriteAllText($staged,$cleaned,$enc)" >nul 2>&1
+  "$path='!CHK_PATH!'; $staged='!CHK_STAGED:\=\\!'; $oldValFile='!CHK_OLD_VAL:\=\\!'; $isPs1=[bool]($path -match '\.ps1$'); $enc=[System.Text.UTF8Encoding]::new($isPs1); $content=[IO.File]::ReadAllText($path,$enc).TrimEnd([char]13,[char]10); $eol=if($isPs1 -or $content -match \"`r`n\"){\"`r`n\"}else{\"`n\"}; $lines=@($content -split \"`r?`n\"); $oldHash=''; while($lines.Count -gt 0){$last=($lines[-1] -replace \"`r$\",''); if([string]::IsNullOrWhiteSpace($last)){$lines=$lines[0..($lines.Count-2)]}elseif($last -match 'checksum:MD5=([0-9a-fA-F]{32})'){$oldHash=$matches[1]; $lines=$lines[0..($lines.Count-2)]; if($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace(($lines[-1] -replace \"`r$\",''))){$lines=$lines[0..($lines.Count-2)]}}else{break}}; if($oldHash){[IO.File]::WriteAllText($oldValFile, $oldHash.ToLower().Trim())}; $cleaned=($lines -join $eol)+$eol; [IO.File]::WriteAllText($staged,$cleaned,$enc)" >nul 2>&1
+
 if not exist "!CHK_STAGED!" exit /b 1
+
+:: 1. Читаем СТАРЫЙ хэш (если PowerShell его нашел)
+set "OLD_HASH="
+if exist "!CHK_OLD_VAL!" (
+    set /p OLD_HASH=<"!CHK_OLD_VAL!"
+    del /q "!CHK_OLD_VAL!" 2>nul
+)
+
+:: 2. Считаем НОВЫЙ хэш (через certutil)
 set "CHK_HASH="
-for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "!CHK_STAGED!" MD5 2^>nul') do set "CHK_HASH=%%H" & goto :CHK_HASH_DONE
-:CHK_HASH_DONE
+for /f "skip=1 tokens=*" %%H in ('certutil -hashfile "!CHK_STAGED!" MD5 2^>nul') do (
+    if not defined CHK_HASH set "CHK_HASH=%%H"
+)
+:: Чистим пробелы (Certutil иногда выдает "ab cd 12..." или пробелы в конце)
+set "CHK_HASH=!CHK_HASH: =!"
+:: Приводим к нижнему регистру для сравнения (трюк через subs)
+for %%L in ("a=a" "b=b" "c=c" "d=d" "e=e" "f=f" "A=a" "B=b" "C=c" "D=d" "E=e" "F=f") do set "CHK_HASH=!CHK_HASH:%%~L!"
+
+:: Защита от сбоя certutil
 if not defined CHK_HASH set "CHK_HASH=d41d8cd98f00b204e9800998ecf8427e"
+
+:: 3. СРАВНЕНИЕ
+set "STATUS_MSG="
+if defined OLD_HASH (
+    if not "!OLD_HASH!"=="!CHK_HASH!" (
+        set "STATUS_MSG= %C_VAL%(CHANGED)%C_RST%"
+        set "WAS_CHANGED=1"
+    )
+) else (
+    :: Если хэша раньше не было, считаем это изменением (или новым добавлением)
+    set "STATUS_MSG= %C_KEY%(NEW)%C_RST%"
+    set "WAS_CHANGED=1"
+)
+
+:: 4. Запись в файл
 set "CHK_PREFIX=#"
 for %%F in ("!CHK_FILE!") do set "CHK_EXT=%%~xF"
 if /i "!CHK_EXT!"==".bat" set "CHK_PREFIX=::"
 if /i "!CHK_EXT!"==".cmd" set "CHK_PREFIX=::"
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$path='!CHK_PATH!'; $staged='!CHK_STAGED:\=\\!'; $isPs1=[bool]($path -match '\.ps1$'); $enc=[System.Text.UTF8Encoding]::new($isPs1); $txt=[IO.File]::ReadAllText($staged,$enc); $hash='!CHK_HASH!'.ToLower(); $prefix='!CHK_PREFIX!'; $line=$prefix+\" checksum:MD5=\"+$hash; [IO.File]::AppendAllText($staged,$line,$enc)" >nul 2>&1
+  "$staged='!CHK_STAGED:\=\\!'; $enc=[System.Text.UTF8Encoding]::new($false); $hash='!CHK_HASH!'; $prefix='!CHK_PREFIX!'; $line=$prefix+\" checksum:MD5=\"+$hash; [IO.File]::AppendAllText($staged,$line,$enc)" >nul 2>&1
+
 copy /y "!CHK_STAGED!" "!CHK_FILE!" >nul 2>&1
 del /q "!CHK_STAGED!" 2>nul
-echo   %C_GRY%-%C_RST% File: %C_VAL%!CHK_FILE!%C_RST% %C_GRY%MD5=%C_KEY%!CHK_HASH!%C_RST%
+
+echo   %C_GRY%-%C_RST% File: %C_VAL%!CHK_FILE!%C_RST% %C_GRY%MD5=%C_KEY%!CHK_HASH!%C_RST%!STATUS_MSG!
 exit /b 0
 
 :CLEAR_CHECKSUM_FROM_FILE
@@ -1117,6 +1161,7 @@ if not exist "_unpacker.bat" (
     exit /b 1
 )
 set "CHK_N=0"
+set "CHK_C=0"
 echo %C_LBL%[CHECKSUM]%C_RST% %L_CHKSUM_ALL_START%
 for /f "tokens=*" %%F in ('findstr "BEGIN_B64_" _unpacker.bat 2^>nul') do (
     set "line=%%F"
@@ -1124,10 +1169,13 @@ for /f "tokens=*" %%F in ('findstr "BEGIN_B64_" _unpacker.bat 2^>nul') do (
     for /f "tokens=* delims= " %%a in ("!line!") do set "line=%%a"
     if exist "!line!" (
         call :ADD_CHECKSUM_TO_FILE "!line!"
-        if not errorlevel 1 set /a CHK_N+=1
+        if not errorlevel 1 (
+            set /a CHK_N+=1
+            if "!WAS_CHANGED!"=="1" set /a CHK_C+=1
+        )
     )
 )
-echo !C_OK!!L_CHKSUM_DONE! !CHK_N!!C_RST!
+echo !C_OK!!L_CHKSUM_DONE! !CHK_N! !C_LBL!Changed: !CHK_C!!C_RST!
 exit /b 0
 
 :CLI_CHECKSUM
@@ -1650,4 +1698,4 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJZYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJZYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJZYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=b03275d036a9b2ab3b2f7cb91fcc938d
+:: checksum:MD5=e49ea13c7bcf1cbdfdb4931b300df1cc

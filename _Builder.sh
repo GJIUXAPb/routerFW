@@ -4,7 +4,7 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-VER_NUM="4.48"
+VER_NUM="4.49"
 
 # Bootstrap — dict not yet available
 # Функция очистки при прерывании (Ctrl+C). Вызывается по SIGINT/SIGTERM в любой момент,
@@ -368,6 +368,14 @@ checksum_comment_prefix() {
 add_checksum_to_file() {
     local file="$1"
     [ ! -f "$file" ] && { echo -e "${C_ERR}[SKIP] $file not found${C_RST}"; return 1; }
+    
+    WAS_CHANGED=0
+    
+    # 1. Пытаемся извлечь старый хэш (если есть)
+    local old_hash
+    old_hash=$(grep -oE "checksum:MD5=[0-9a-fA-F]{32}" "$file" 2>/dev/null | tail -1 | cut -d= -f2)
+    old_hash="${old_hash,,}" # приводим к нижнему регистру
+
     local staged
     staged=$(mktemp)
     
@@ -400,6 +408,14 @@ add_checksum_to_file() {
     local hash
     hash=$(md5sum < "$staged" | cut -d' ' -f1)
     hash="${hash,,}"
+
+    # 2. Сравнение
+    local status_msg=""
+    if [ "$old_hash" != "$hash" ]; then
+        status_msg=" ${C_VAL}(CHANGED)${C_RST}"
+        WAS_CHANGED=1
+    fi
+
     local prefix
     prefix=$(checksum_comment_prefix "$file")    
     
@@ -407,7 +423,7 @@ add_checksum_to_file() {
     # поэтому printf безопасно начнет запись с новой строки.
     printf '%s checksum:MD5=%s' "$prefix" "$hash" >> "$staged"
     mv "$staged" "$file"
-    echo -e "  ${C_GRY}-${C_RST} File: ${C_VAL}${file}${C_RST} ${C_GRY}MD5=${C_KEY}${hash}${C_RST}"
+    echo -e "  ${C_GRY}-${C_RST} File: ${C_VAL}${file}${C_RST} ${C_GRY}MD5=${C_KEY}${hash}${C_RST}${status_msg}"
 }
 
 extract_files_from_unpacker() {
@@ -429,10 +445,17 @@ do_checksum_all() {
     [ ${#files[@]} -eq 0 ] && { echo -e "${C_ERR}$L_CHKSUM_ERR_EMPTY${C_RST}"; return 1; }
     echo -e "${C_LBL}[CHECKSUM]${C_RST} ${L_CHKSUM_ALL_START}"
     local n=0
+    local c=0
     for f in "${files[@]}"; do
-        [ -f "$f" ] && add_checksum_to_file "$f" && ((n++))
+        if [ -f "$f" ]; then
+            add_checksum_to_file "$f"
+            if [ $? -eq 0 ]; then
+                ((n++))
+                [ "$WAS_CHANGED" == "1" ] && ((c++))
+            fi
+        fi
     done
-    echo -e "${C_OK}$L_CHKSUM_DONE $n${C_RST}"
+    echo -e "${C_OK}$L_CHKSUM_DONE $n${C_RST} ${C_LBL}Changed: $c${C_RST}"
 }
 
 do_checksum_profile() {
@@ -1699,4 +1722,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=f242800c0fa8961b4e8562af2edfa532
+# checksum:MD5=5862ba263322b5b6f0e073700cf1d183
