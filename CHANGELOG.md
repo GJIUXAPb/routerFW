@@ -1,7 +1,7 @@
 # RouterFW — тексты релизов (по тегам)
 
 Выгружено из репозитория по тегам через `gh release view`.
-Дата выгрузки: 2026-03-01 02:02:45.
+Дата выгрузки: 2026-03-05 23:51:55.
 
 ---
 
@@ -2173,3 +2173,73 @@ asset:	routerFW_WinDockerBuilder_v01.03.2026_01-41.zip
 *Release notes for GitHub — summary of changes from tag 4.46 to current 4.48.*
 
 **Full Changelog**: https://github.com/iqubik/routerFW/compare/4.46...4.47
+
+
+## ========== TAG: 4.49 ==========
+
+title:	4.49
+tag:	4.49
+draft:	false
+prerelease:	false
+immutable:	false
+author:	iqubik
+created:	2026-03-05T20:46:56Z
+published:	2026-03-05T20:51:21Z
+url:	https://github.com/iqubik/routerFW/releases/tag/4.49
+asset:	routerFW_LinuxDockerBuilder_v05.03.2026_23-44.tar.gz
+asset:	routerFW_WinDockerBuilder_v05.03.2026_23-44.zip
+--
+### ROUTERFW — РЕЛИЗ 4.49
+
+**Версия:** 4.49
+**Период изменений:** от тега 4.47 до текущего состояния
+
+---
+
+### РУССКИЙ
+
+**ЧТО НОВОГО**
+
+*   **Новая опция `SRC_CORES=debug` для Source Builder**
+    *   Добавлена новая опция `SRC_CORES="debug"`, которая позволяет немедленно запустить сборку в режиме отладки.
+    *   Сборка принудительно запускается в один поток с максимальной детализацией логов (`make -j1 V=s`).
+    *   Это идеально подходит для диагностики и поиска ошибок на самом раннем этапе, без необходимости ждать сбоя основной параллельной сборки.
+
+*   **Комплексное обновление документации**
+    *   Обновлена вся связанная документация, чтобы отразить новую возможность: `README.md` (ru/en), `GEMINI.md`, все релевантные уроки в `docs/`, диаграммы архитектуры и правила `.cursor/rules`.
+
+*   **Обновление версий служебных скриптов**
+    *   Повышены версии в затронутых скриптах: `system/src_builder.sh` (до v2.0), `system/create_profile.sh` (до v2.70) и `system/create_profile.ps1` (до v2.7).
+
+---
+
+### ENGLISH
+
+<details>
+<summary>WHAT'S NEW</summary>
+
+*   **New `SRC_CORES=debug` Option for Source Builder**
+    *   Added a new `SRC_CORES="debug"` option that allows immediately starting a build in debug mode.
+    *   The build is forced to run in a single thread with maximum log verbosity (`make -j1 V=s`).
+    *   This is ideal for troubleshooting and diagnosing errors at the earliest stage, without having to wait for a parallel build to fail.
+
+*   **Comprehensive Documentation Update**
+    *   Updated all related documentation to reflect the new feature: `README.md` (ru/en), `GEMINI.md`, all relevant lessons in `docs/`, architecture diagrams, and `.cursor/rules`.
+
+*   **Utility Script Version Bump**
+    *   Incremented versions in the affected scripts: `system/src_builder.sh` (to v2.0), `system/create_profile.sh` (to v2.70), and `system/create_profile.ps1` (to v2.7).
+
+</details>
+
+---
+
+
+## What's Changed
+* docs: add check-clear command to CLI tables in documentation by @cto-new[bot] in https://github.com/iqubik/routerFW/pull/33
+* docs: add release notes for v4.48 by @cto-new[bot] in https://github.com/iqubik/routerFW/pull/34
+* Prevent snake workflow from deleting non-snake files in output branch by @cto-new[bot] in https://github.com/iqubik/routerFW/pull/35
+* fix: update GitHub Pages action to keep non-snake files by @cto-new[bot] in https://github.com/iqubik/routerFW/pull/36
+* Src debug by @iqubik in https://github.com/iqubik/routerFW/pull/39
+
+
+**Full Changelog**: https://github.com/iqubik/routerFW/compare/4.47...4.49
