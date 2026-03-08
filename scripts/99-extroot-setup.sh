@@ -1,6 +1,5 @@
 #!/bin/sh
 # Extroot Setup Script for OpenWrt
-VERSION="2.19"
 # (Оптимизировано для uci-defaults)
 #
 # АРХИТЕКТУРА:
@@ -30,6 +29,8 @@ DISK="/dev/mmcblk0"
 EXTROOT_SIZE_GB="4"
 # Размер раздела подкачки.
 SWAP_SIZE_GB="2"
+# Версия скрипта для логирования и отслеживания.
+VERSION="2.20"
 
 # Имена разделов определены для ясности и простоты обслуживания.
 PART_ROOT="${DISK}p6"
@@ -213,17 +214,20 @@ info "--> Копирование данных из /overlay в ${MNT_EXTROOT}...
 # Теперь tar скопирует УЖЕ созданный симлинк /mnt/down и точку /mnt/data!
 tar -C /overlay -cvf - . | tar -C "$MNT_EXTROOT" -xf -
 
-# === ИСПРАВЛЕНИЕ "ПАПОК-ПРИЗРАКОВ" И ФИКСАЦИЯ СИМЛИНКА ===
-info "--> Точечная очистка папок-призраков от automount внутри нового extroot..."
-# Удаляем только папки, созданные automount (начинаются с mmcblk),
-# сохраняя при этом /mnt/data и /mnt/down, которые мы заботливо создали на этапе 4.
+# === ИСПРАВЛЕНИЕ "ПАПОК-ПРИЗРАКОВ", ВРЕМЕННЫХ ПУТЕЙ И ФИКСАЦИЯ СИМЛИНКА ===
+info "--> Точечная очистка папок-призраков и временных путей внутри нового extroot..."
+# Удаляем папки, созданные automount (начинаются с mmcblk)
 rm -rf "$MNT_EXTROOT/upper/mnt/mmcblk"* 2>/dev/null
 rm -rf "$MNT_EXTROOT/mnt/mmcblk"* 2>/dev/null
+
+# Удаляем саму временную папку монтирования, которая попала в копию из текущего /overlay
+rm -rf "$MNT_EXTROOT/upper/mnt/new_extroot" 2>/dev/null
+rm -rf "$MNT_EXTROOT/mnt/new_extroot" 2>/dev/null
 
 info "--> ЖЕЛЕЗОБЕТОННАЯ фиксация симлинка внутри нового extroot..."
 rm -rf "$MNT_EXTROOT/upper/mnt/down"
 ln -sfn /mnt/data/downloads "$MNT_EXTROOT/upper/mnt/down"
-# =========================================================
+# ========================================================================
 
 info "--> Генерация fstab на новом extroot..."
 FSTAB_PATH="$MNT_EXTROOT/upper/etc/config/fstab"
