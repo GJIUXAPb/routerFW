@@ -1,6 +1,6 @@
 #!/bin/sh
-# Professional Extroot Setup Script for OpenWrt v1.1 (Audited)
-# Исправлена проблема с fdisk busybox и расчетом секторов
+# Professional Extroot Setup Script for OpenWrt v1.2 (Audited & Debuggable)
+# Добавлено расширенное логирование для отладки
 
 # === CONFIGURATION ===
 DISK="/dev/mmcblk0"
@@ -18,9 +18,11 @@ info() {
     echo -e "\033[0;32m[INFO] $1\033[0m"
 }
 
-info "--- Запуск Professional Extroot Script v1.1 ---"
+info "--- Запуск Professional Extroot Script v1.2 ---"
+info "Целевой диск: ${DISK}"
 
 # 1. Проверка зависимостей
+info "[Этап 1/4] Проверка зависимостей..."
 PKGS=""
 command -v blkid >/dev/null || PKGS="$PKGS blkid"
 # Проверяем наличие пакета block-mount (критично)
@@ -31,33 +33,32 @@ fi
 command -v fdisk >/dev/null || PKGS="$PKGS fdisk"
 
 if [ -n "$PKGS" ]; then
-    info "Установка недостающих пакетов: $PKGS"
+    info "--> Установка недостающих пакетов: $PKGS"
     opkg update
     opkg install $PKGS || fail "Не удалось установить пакеты."
+else
+    info "--> Все зависимости на месте."
 fi
+info "[Этап 1/4] Зависимости в порядке."
 
 # 2. Разметка диска (Математический метод)
+info "[Этап 2/4] Проверка разметки диска..."
 if ! [ -b "$PART_SWAP" ]; then
-    info "Этап 2: Переразметка диска..."
+    info "--> Раздел ${PART_SWAP} не найден. Требуется разметка."
+    info "--> НАЧАЛО РАЗМЕТКИ ДИСКА..."
     
     # Получаем размер диска в секторах (из sysfs - это самый надежный способ)
-    DISK_NAME=${DISK##*/} # mmcblk0
+    DISK_NAME=${DISK##*/}
     TOTAL_SECTORS=$(cat /sys/class/block/${DISK_NAME}/size)
-    
     # Размер сектора (обычно 512)
     SECTOR_SIZE=$(cat /sys/class/block/${DISK_NAME}/queue/hw_sector_size 2>/dev/null || echo 512)
-    
     # Вычисляем размер SWAP в секторах: (GB * 1024^3) / SectorSize
     # Используем awk для расчетов, так как sh не умеет в большие числа иногда
     SWAP_SECTORS=$(awk "BEGIN {print int($SWAP_SIZE_GB * 1024 * 1024 * 1024 / $SECTOR_SIZE)}")
-    
     # Вычисляем начало раздела SWAP (Оставляем небольшой отступ с конца, если нужно, но обычно Total - Swap)
     SWAP_START=$(awk "BEGIN {print $TOTAL_SECTORS - $SWAP_SECTORS}")
-    
     # Конец раздела ROOT (перед SWAP)
     ROOT_END=$(awk "BEGIN {print $SWAP_START - 1}")
-    
-    info "Геометрия: Total=$TOTAL_SECTORS, SwapStart=$SWAP_START"
     
     # Генерируем команды для fdisk
     # d 6, d 7 (на всякий случай), n p 6 (default start) (calculated end), n p 7 (calculated start) (default end)
@@ -72,6 +73,7 @@ if ! [ -b "$PART_SWAP" ]; then
     # n -> (p) -> 6 -> (default start) -> $ROOT_END
     # n -> (p) -> 7 -> (default start) -> (default end)
     # w
+    info "--> Геометрия диска: Total=${TOTAL_SECTORS}, SwapStart=${SWAP_START}, RootEnd=${ROOT_END}"
     
     (
         echo d; echo 6
@@ -83,38 +85,55 @@ if ! [ -b "$PART_SWAP" ]; then
         echo w
     ) | fdisk "$DISK"
     
-    info "Таблица разделов обновлена. Требуется перезагрузка."
-    sleep 2
+    info "--> РАЗМЕТКА ДИСКА ЗАВЕРШЕНА."
+    info "--> Таблица разделов обновлена. Требуется перезагрузка ядра."
+    sleep 3
     reboot
     exit 0
+else
+    info "--> Разделы уже существуют. Пропускаем разметку."
 fi
+info "[Этап 2/4] Разметка диска в порядке."
+
 
 # 3. Форматирование
+info "[Этап 3/4] Проверка файловых систем..."
 if ! blkid "$PART_ROOT" | grep -q 'TYPE="ext4"'; then
-    info "Форматирование $PART_ROOT в ext4..."
     # -F force (избегает вопросов)
+    info "--> Раздел ${PART_ROOT} не отформатирован. Форматирование в ext4..."
     mkfs.ext4 -F -L emmc_data "$PART_ROOT" || fail "Ошибка форматирования ext4"
+    info "--> Форматирование ${PART_ROOT} завершено."
+else
+    info "--> Раздел ${PART_ROOT} уже отформатирован в ext4."
 fi
 
 if ! blkid "$PART_SWAP" | grep -q 'TYPE="swap"'; then
-    info "Форматирование $PART_SWAP..."
+    info "--> Раздел ${PART_SWAP} не отформатирован. Создание swap..."
     mkswap "$PART_SWAP" || fail "Ошибка создания swap"
+    info "--> Создание swap на ${PART_SWAP} завершено."
+else
+    info "--> Раздел ${PART_SWAP} уже является swap."
 fi
+info "[Этап 3/4] Файловые системы в порядке."
+
 
 # 4. Настройка Extroot
+info "[Этап 4/4] Проверка активации Extroot..."
 CURRENT_OVERLAY_DEV=$(mount | grep 'on /overlay ' | awk '{print $1}')
 
 if [ "$CURRENT_OVERLAY_DEV" != "$PART_ROOT" ]; then
-    info "Настройка переноса overlay на $PART_ROOT..."
+    info "--> Extroot не активен на ${PART_ROOT}. Запуск финальной настройки..."
 
     UUID_ROOT=$(blkid -o value -s UUID "$PART_ROOT")
-    [ -z "$UUID_ROOT" ] && fail "Не удалось получить UUID"
+    [ -z "$UUID_ROOT" ] && fail "Не удалось получить UUID для $PART_ROOT"
+    info "--> UUID для ${PART_ROOT} найден: ${UUID_ROOT}"
     
     MNT="/mnt/new_extroot"
     mkdir -p "$MNT"
+    info "--> Монтирование ${PART_ROOT} в ${MNT}..."
     mount "$PART_ROOT" "$MNT" || fail "Не удалось смонтировать $PART_ROOT"
 
-    info "Копирование данных..."
+    info "--> Копирование данных из /overlay в ${MNT}..."
     tar -C /overlay -cvf - . | tar -C "$MNT" -xf -
 
     # Детекция пути конфига
@@ -127,14 +146,13 @@ if [ "$CURRENT_OVERLAY_DEV" != "$PART_ROOT" ]; then
         CFG_PATH="$MNT/etc/config"
         [ ! -f "$CFG_PATH/fstab" ] && cp /etc/config/fstab "$CFG_PATH/"
     fi
-    
-    info "Правка fstab в $CFG_PATH..."
+    info "--> Путь к конфигурационным файлам определен: ${CFG_PATH}"
     
     # Очистка старых анонимных маунтов для надежности (итерация)
     # Удаляем все записи, у которых target /overlay, чтобы не было дублей
     # (Это сложная логика для shell, поэтому используем простой метод именованной перезаписи
     # и надеемся, что block-mount приоритезирует UUID)
-    
+    info "--> Модификация fstab внутри нового раздела..."
     uci -c "$CFG_PATH" batch <<EOF
 set fstab.overlay=mount
 set fstab.overlay.uuid='$UUID_ROOT'
@@ -146,11 +164,16 @@ set fstab.swap.enabled='1'
 commit fstab
 EOF
 
+    info "--> Отмонтирование ${MNT}..."
     umount "$MNT"
-    info "Готово. Перезагрузка..."
+    
+    info "--> Настройка завершена успешно. Финальная перезагрузка."
     reboot
     exit 0
+else
+    info "--> Extroot уже активен на ${PART_ROOT}. Никаких действий не требуется."
 fi
+info "[Этап 4/4] Extroot в порядке."
 
-info "Extroot уже настроен."
+info "--- Скрипт настройки Extroot завершил работу. ---"
 exit 0
