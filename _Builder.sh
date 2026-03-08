@@ -4,7 +4,7 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-VER_NUM="4.49"
+VER_NUM="4.50"
 
 # Bootstrap — dict not yet available
 # Функция очистки при прерывании (Ctrl+C). Вызывается по SIGINT/SIGTERM в любой момент,
@@ -935,10 +935,13 @@ create_perms_script() {
     # Пишем файл
     cat <<EOF > "$target"
 #!/bin/sh
+# Fix SSH permissions
 [ -d /etc/dropbear ] && chmod 700 /etc/dropbear
 [ -f /etc/dropbear/authorized_keys ] && chmod 600 /etc/dropbear/authorized_keys
+# Fix Shadow
 [ -f /etc/shadow ] && chmod 600 /etc/shadow
-[ -f /root/.ssh ] && chmod 700 /root/.ssh
+# Fix root SSH keys
+[ -d /root/.ssh ] && chmod 700 /root/.ssh
 [ -f /root/.ssh/id_rsa ] && chmod 600 /root/.ssh/id_rsa
 exit 0
 EOF
