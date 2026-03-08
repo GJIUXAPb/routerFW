@@ -160,6 +160,11 @@ config global
 	option check_fs '1'
 
 config mount
+	option target '/rom'
+	option uuid '3d1747c3-d71d815e-fecac4ae-7494d1e2'
+	option enabled '0'
+
+config mount
 	option target '/overlay'
 	option uuid '$UUID_ROOT'
 	option enabled '1'
