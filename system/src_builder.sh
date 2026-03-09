@@ -1,5 +1,5 @@
 #!/bin/bash
-# file: system/src_builder.sh v2.1
+# file: system/src_builder.sh v2.2
 set -e
 
 # 1. Исправление прав (выполняется под root)
@@ -266,6 +266,18 @@ TARGET_DIR="/output/$TIMESTAMP"
 mkdir -p "$TARGET_DIR"
 find bin/targets/$SRC_TARGET -type f -not -path "*/packages/*" -exec mv {} "$TARGET_DIR/" \;
 cp .config "$TARGET_DIR/build.config"
+
+# Метаданные ядра из profiles.json (версия и vermagic)
+META_FILE="$TARGET_DIR/profiles.json"
+if [ -f "$META_FILE" ]; then
+    meta_line=$(tr -d '\n' < "$META_FILE")
+    kernel_ver=$(echo "$meta_line" | sed -n 's/.*"linux_kernel":[^}]*"version":"\([^"]*\)".*/\1/p')
+    kernel_vm=$(echo "$meta_line" | sed -n 's/.*"linux_kernel":[^}]*"vermagic":"\([^"]*\)".*/\1/p')
+    if [ -n "$kernel_ver" ] || [ -n "$kernel_vm" ]; then
+        echo ""
+        printf '%b kernel %s  vermagic %s\n' "${CYAN}[LINUX KERNEL]${NC}" "${kernel_ver:-?}" "${kernel_vm:-?}"
+    fi
+fi
 
 # Список: папка (метка времени подсвечена) + имена файлов с размерами в МБ
 echo ""
