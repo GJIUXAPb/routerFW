@@ -1,5 +1,5 @@
 #!/bin/bash
-# file: system/src_builder.sh v2.0
+# file: system/src_builder.sh v2.1
 set -e
 
 # 1. Исправление прав (выполняется под root)
@@ -267,16 +267,23 @@ mkdir -p "$TARGET_DIR"
 find bin/targets/$SRC_TARGET -type f -not -path "*/packages/*" -exec mv {} "$TARGET_DIR/" \;
 cp .config "$TARGET_DIR/build.config"
 
-# Список скопированных файлов с путями (вид на хосте)
+# Список: папка (метка времени подсвечена) + имена файлов с размерами в МБ
 echo ""
+base_win="sourcebuilder\\${PROFILE_ID}"
+printf '%b  firmware_output\\%s\\%b\\\n' "${CYAN}[FIRMWARE FOLDER]${NC}" "${base_win}" "${CYAN}${TIMESTAMP}${NC}"
+printf '%b\n' "${CYAN}[FILES]${NC}"
 for f in "$TARGET_DIR"/*; do
     [ -e "$f" ] || continue
     name=$(basename "$f")
-    path="firmware_output/sourcebuilder/$PROFILE_ID/$TIMESTAMP/$name"
-    echo "${path//\//\\}"
+    bytes=$(stat -c%s "$f" 2>/dev/null); bytes=${bytes:-0}
+    mb=$(awk "BEGIN {printf \"%.1f\", $bytes/1048576}")
+    if [ "$bytes" -ge 31457280 ]; then col="$RED"      # >= 30 MB
+    elif [ "$bytes" -ge 10485760 ]; then col="$YELLOW" # >= 10 MB
+    else col="$GREEN"; fi
+    printf '%s  %b\n' "$name" "${col}[${mb} MB]${NC}"
 done
 
 ELAPSED=$(($(date +%s) - START_TIME))
 echo -e "\n=== Build $PROFILE_NAME completed in ${ELAPSED}s. ===\n"
 EOF
-# checksum:MD5=3bf492c93358f559c87011d66bc1efe6
+# checksum:MD5=04f079aea7f7490ba69b9fe4ce057a59

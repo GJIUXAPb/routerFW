@@ -1,11 +1,12 @@
 #!/bin/bash
-# file: system/ib_builder.sh v1.5
+# file: system/ib_builder.sh v1.6
 set -e
 
 # Цвета для логов
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 log() { echo -e "${GREEN}[INFO] $1${NC}"; }
@@ -155,13 +156,20 @@ TARGET_DIR="$OUTPUT_BASE/$TIMESTAMP"
 mkdir -p "$TARGET_DIR"
 find bin/targets -type f -not -path "*/packages/*" -exec cp {} "$TARGET_DIR/" \;
 
-# Список скопированных файлов с путями (вид на хосте)
+# Список: папка (метка времени подсвечена) + имена файлов с размерами
+base_win="${REL_PATH//\//\\}"
 echo ""
+printf '%b  firmware_output\\%s\\%b\\\n' "${CYAN}[FIRMWARE FOLDER]${NC}" "${base_win}" "${CYAN}${TIMESTAMP}${NC}"
+printf '%b\n' "${CYAN}[FILES]${NC}"
 for f in "$TARGET_DIR"/*; do
     [ -e "$f" ] || continue
     name=$(basename "$f")
-    path="firmware_output/$REL_PATH/$TIMESTAMP/$name"
-    echo "${path//\//\\}"
+    bytes=$(stat -c%s "$f" 2>/dev/null); bytes=${bytes:-0}
+    mb=$(awk "BEGIN {printf \"%.1f\", $bytes/1048576}")
+    if [ "$bytes" -ge 31457280 ]; then col="$RED"      # >= 30 MB
+    elif [ "$bytes" -ge 10485760 ]; then col="$YELLOW" # >= 10 MB
+    else col="$GREEN"; fi
+    printf '%s  %b\n' "$name" "${col}[${mb} MB]${NC}"
 done
 
 ELAPSED=$(($(date +%s) - START_TIME))
@@ -169,4 +177,4 @@ echo -e "\n============================================================"
 echo -e "=== Build completed in ${ELAPSED}s."
 echo -e "=== Artifacts: firmware_output/$REL_PATH/$TIMESTAMP"
 echo -e "============================================================\n"
-# checksum:MD5=4f6d0e6cb9e9c909b6b9af97445b64e1
+# checksum:MD5=8d126fb79367c62e66ab730ff34a003b
