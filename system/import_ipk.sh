@@ -24,7 +24,7 @@ for cmd in curl jq tar ar; do
 done
 
 # --- ИНИЦИАЛИЗАЦИЯ ПУТЕЙ ---
-if[ -n "$PROFILE_ID" ]; then
+if [ -n "$PROFILE_ID" ]; then
     IPK_DIR="custom_packages/$PROFILE_ID"
     OUT_DIR="src_packages/$PROFILE_ID"
 else
@@ -91,7 +91,7 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
     PKG_DEPS=""
     POSTINST_CONTENT=""
 
-    if[ "$IS_APK" = true ]; then
+    if [ "$IS_APK" = true ]; then
         # 2a. Распаковка APK (метаданные)
         tar -xf "$IPK_PATH" -C "$TEMP_DIR/unpack" ".PKGINFO" ".post-install" 2>/dev/null || tar -xf "$IPK_PATH" -C "$TEMP_DIR/unpack" 2>/dev/null
         
@@ -104,7 +104,8 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
             # Парсинг зависимостей (исключаем виртуальные so:, cmd:, pc:)
             RAW_DEPS=$(grep "^depend = " "$PKGINFO_FILE" | sed 's/^depend = //' | tr -d '\r')
             for dep in $RAW_DEPS; do
-                if [[ "$dep" =~ ^(so|cmd|pc): ]]; then continue; fi[ -z "$PKG_DEPS" ] && PKG_DEPS="+$dep" || PKG_DEPS="$PKG_DEPS +$dep"
+                if [[ "$dep" =~ ^(so|cmd|pc): ]]; then continue; fi
+                [ -z "$PKG_DEPS" ] && PKG_DEPS="+$dep" || PKG_DEPS="$PKG_DEPS +$dep"
             done
         fi
         
@@ -140,7 +141,8 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
                 | sed 's/libopenssl1.1/libopenssl/g')
             
             for dep in $CLEAN_DEPS; do
-                [[ "$dep" == "libc" || "$dep" == "libgcc" || -z "$dep" ]] && continue[ -z "$PKG_DEPS" ] && PKG_DEPS="+$dep" || PKG_DEPS="$PKG_DEPS +$dep"
+                [[ "$dep" == "libc" || "$dep" == "libgcc" || -z "$dep" ]] && continue
+                [ -z "$PKG_DEPS" ] && PKG_DEPS="+$dep" || PKG_DEPS="$PKG_DEPS +$dep"
             done
         fi
 
@@ -227,7 +229,8 @@ define Package/\$(PKG_NAME)
 endef
 
 define Build/Prepare
-	mkdir -p \$(PKG_BUILD_DIR)[ -f ./data.tar.gz ] && cp ./data.tar.gz \$(PKG_BUILD_DIR)/ || true[ -f ./data.apk ] && cp ./data.apk \$(PKG_BUILD_DIR)/ || true
+	mkdir -p \$(PKG_BUILD_DIR)
+	[ -f ./data.tar.gz ] && cp ./data.tar.gz \$(PKG_BUILD_DIR)/ || true[ -f ./data.apk ] && cp ./data.apk \$(PKG_BUILD_DIR)/ || true
 endef
 
 define Build/Compile
