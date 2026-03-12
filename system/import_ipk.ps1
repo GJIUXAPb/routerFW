@@ -1,4 +1,4 @@
-﻿# file : system/import_ipk.ps1
+# file : system/import_ipk.ps1
 # Скрипт импорта IPK v2.8 (Smart APK Fallback)
 param (
     [Parameter(Mandatory=$false)]
@@ -63,22 +63,54 @@ foreach ($ipk in $ipkFiles) {
     $pkgName = ""; $pkgVersion = ""; $pkgDeps = ""; $pkgArch = ""; $postinst = ""; $depsList = @()
 
     if ($isApk) {
-        # 2a. Распаковка APK (попытка достать метаданные встроенным tar)
-        tar -xf "$ipkDir\$($ipk.Name)" -C "$tempDir\unpack" ".PKGINFO" ".post-install" 2>$null
-        if (-not (Test-Path "$tempDir\unpack\.PKGINFO")) { tar -xf "$ipkDir\$($ipk.Name)" -C "$tempDir\unpack" 2>$null }
+        # 2a. Распаковка APK v3 (через Docker/apk-tools)
+        Write-Host "    [*] APK v3 detected. Using Docker 'apk adbdump'..." -ForegroundColor Cyan
+        
+        $apkFullPath = $ipk.FullName
+        $apkParentDir = $ipk.DirectoryName
+        $apkFileName = $ipk.Name
+        
+        try {
+            # Выполняем docker-команду и ловим ее вывод
+            $dockerCommand = "docker run --rm -v ""$apkParentDir`:/data"" alpine:latest apk adbdump /data/$apkFileName"
+            $adbdumpOutput = Invoke-Expression $dockerCommand
+            $adbdumpOutputString = $adbdumpOutput -join "`n"
 
-        if (Test-Path "$tempDir\unpack\.PKGINFO") {
-            $controlContent = Get-Content "$tempDir\unpack\.PKGINFO"
-            foreach($line in $controlContent) {
-                if ($line -match "(?i)^pkgname\s*=\s*(.*)") { $pkgName = $matches[1].Trim() }
-                if ($line -match "(?i)^pkgver\s*=\s*(.*)") { $pkgVersion = $matches[1].Trim() }
-                if ($line -match "(?i)^arch\s*=\s*(.*)") { $pkgArch = $matches[1].Trim() }
-                if ($line -match "(?i)^depend\s*=\s*(.*)") { 
-                    $depsList += $matches[1].Trim() -split "\s+" | ForEach-Object { $_.Trim() }
+            # Если команда не вернула вывод, считаем это ошибкой
+            if (-not $adbdumpOutputString) { throw "Docker command returned no output." }
+
+            # Regex для извлечения основных полей
+            $pkgName = if ($adbdumpOutputString -match '(?m)^\s*name:\s*(.*)$') { $matches[1].Trim() } else { "" }
+            $pkgVersion = if ($adbdumpOutputString -match '(?m)^\s*version:\s*(.*)$') { $matches[1].Trim() } else { "" }
+            $pkgArch = if ($adbdumpOutputString -match '(?m)^\s*arch:\s*(.*)$') { $matches[1].Trim() } else { "" }
+
+            # Regex для зависимостей (строгий, между 'depends:' и 'provides:')
+            $depsBlockMatch = [regex]::Match($adbdumpOutputString, '(?ms)depends:(.*?)provides:')
+            if ($depsBlockMatch.Success) {
+                $depsBlock = $depsBlockMatch.Groups[1].Value
+                $depsMatches = [regex]::Matches($depsBlock, '-\s+(.*)')
+                if ($depsMatches) {
+                    $depsList = $depsMatches.Value | ForEach-Object { $_.Substring(1).Trim() }
                 }
+            } else {
+                $depsList = @()
             }
+
+            # Regex для post-install скрипта
+            $postinstMatch = [regex]::Match($adbdumpOutputString, '(?ms)post-install:\s*\|(.*?)(?=\n\w|$)')
+            if ($postinstMatch.Success) {
+                # Убираем отступы в 4 пробела с каждой строки
+                $postinst = ($postinstMatch.Groups[1].Value -split '\n' | ForEach-Object { if ($_.Length -gt 4) { $_.Substring(4) } else { $_.TrimStart() } } | Out-String).Trim()
+            } else {
+                $postinst = ""
+            }
+            Write-Host "    [+] Metadata extracted successfully via Docker." -ForegroundColor Green
+
+        } catch {
+            Write-Host "    [!] Docker command failed. Error: $($_.Exception.Message.Split([Environment]::NewLine)[0])" -ForegroundColor Red
+            $pkgName = $null # Позволяем сработать фоллбеку (старому методу)
         }
-        if (Test-Path "$tempDir\unpack\.post-install") { $postinst = Get-Content "$tempDir\unpack\.post-install" -Raw }
+
     } else {
         # 2b. Распаковка IPK
         tar -xf "$ipkDir\$($ipk.Name)" -C "$tempDir\unpack" 2>$null
@@ -222,11 +254,11 @@ endef
 
 define Package/$(PKG_NAME)/install
 	mkdir -p $(1)
-	# Распаковка внутри Linux сохраняет симлинки. tar -xf сам понимает формат (gz/zstd).
+	# Распаковка внутри Linux сохраняет симлинки.
 	if [ -f $(PKG_BUILD_DIR)/data.tar.gz ]; then \
 		tar -xf $(PKG_BUILD_DIR)/data.tar.gz -C $(1); \
 	elif [ -f $(PKG_BUILD_DIR)/data.apk ]; then \
-		tar -xf $(PKG_BUILD_DIR)/data.apk -C $(1) --exclude=.PKGINFO --exclude=.SIGN.* --exclude=.post-install --exclude=.pre-install; \
+		apk add --root $(1) --initdb --allow-untrusted $(PKG_BUILD_DIR)/data.apk; \
 	fi
 	# Принудительная правка прав для скриптов и бинарников
 	[ -d $(1)/etc/init.d ] && chmod +x $(1)/etc/init.d/* || true
