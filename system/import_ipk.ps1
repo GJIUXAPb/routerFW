@@ -1,5 +1,5 @@
 ﻿# file : system/import_ipk.ps1
-# Скрипт импорта IPK v2.7 (version ipk/apk fix)
+# Скрипт импорта IPK v2.8 (Smart APK Fallback)
 param (
     [Parameter(Mandatory=$false)]
     [string]$ProfileID = "",
@@ -21,7 +21,7 @@ $overwriteAll = $false
 $importedCount = 0
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
-Write-Host "  IPK IMPORT WIZARD v2.7 [$TargetArch][Source Mode]" -ForegroundColor Cyan
+Write-Host "  IPK IMPORT WIZARD v2.8 [$TargetArch][Source Mode]" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "[CONTEXT] " -NoNewline -ForegroundColor Cyan
 Write-Host "Profile: " -NoNewline -ForegroundColor Gray
@@ -63,18 +63,17 @@ foreach ($ipk in $ipkFiles) {
     $pkgName = ""; $pkgVersion = ""; $pkgDeps = ""; $pkgArch = ""; $postinst = ""; $depsList = @()
 
     if ($isApk) {
-        # 2a. Распаковка APK (достаем только метаданные, чтобы не испортить симлинки)
+        # 2a. Распаковка APK (попытка достать метаданные встроенным tar)
         tar -xf "$ipkDir\$($ipk.Name)" -C "$tempDir\unpack" ".PKGINFO" ".post-install" 2>$null
         if (-not (Test-Path "$tempDir\unpack\.PKGINFO")) { tar -xf "$ipkDir\$($ipk.Name)" -C "$tempDir\unpack" 2>$null }
 
         if (Test-Path "$tempDir\unpack\.PKGINFO") {
             $controlContent = Get-Content "$tempDir\unpack\.PKGINFO"
             foreach($line in $controlContent) {
-                if ($line -match "^pkgname = (.*)") { $pkgName = $matches[1].Trim() }
-                if ($line -match "^pkgver = (.*)") { $pkgVersion = $matches[1].Trim() }
-                if ($line -match "^arch = (.*)") { $pkgArch = $matches[1].Trim() }
-                if ($line -match "^depend = (.*)") { 
-                    # APK может иметь несколько строк depend =, поэтому используем +=
+                if ($line -match "(?i)^pkgname\s*=\s*(.*)") { $pkgName = $matches[1].Trim() }
+                if ($line -match "(?i)^pkgver\s*=\s*(.*)") { $pkgVersion = $matches[1].Trim() }
+                if ($line -match "(?i)^arch\s*=\s*(.*)") { $pkgArch = $matches[1].Trim() }
+                if ($line -match "(?i)^depend\s*=\s*(.*)") { 
                     $depsList += $matches[1].Trim() -split "\s+" | ForEach-Object { $_.Trim() }
                 }
             }
@@ -82,19 +81,18 @@ foreach ($ipk in $ipkFiles) {
         if (Test-Path "$tempDir\unpack\.post-install") { $postinst = Get-Content "$tempDir\unpack\.post-install" -Raw }
     } else {
         # 2b. Распаковка IPK
-        tar -xf "$ipkDir\$($ipk.Name)" -C "$tempDir\unpack"
-        if (Test-Path "$tempDir\unpack\control.tar.gz") { tar -xf "$tempDir\unpack\control.tar.gz" -C "$tempDir\control_data" }
+        tar -xf "$ipkDir\$($ipk.Name)" -C "$tempDir\unpack" 2>$null
+        if (Test-Path "$tempDir\unpack\control.tar.gz") { tar -xf "$tempDir\unpack\control.tar.gz" -C "$tempDir\control_data" 2>$null }
         
         # 3. Парсинг файла control
         if (Test-Path "$tempDir\control_data\control") {
             $controlContent = Get-Content "$tempDir\control_data\control"
             foreach($line in $controlContent) {
-                if ($line -match "^Package: (.*)") { $pkgName = $matches[1].Trim() }
-                if ($line -match "^Version: (.*)") { $pkgVersion = $matches[1].Trim() }
-                if ($line -match "^Architecture: (.*)") { $pkgArch = $matches[1].Trim() }
-                if ($line -match "^Depends: (.*)") { 
-                    # Очищено: берем сразу то, что нашли в регулярке $matches[1]
-                    $depsList = ($matches[1] -replace ",", " ") -split "\s+" | ForEach-Object { $_.Trim() }
+                if ($line -match "^Package:\s*(.*)") { $pkgName = $matches[1].Trim() }
+                if ($line -match "^Version:\s*(.*)") { $pkgVersion = $matches[1].Trim() }
+                if ($line -match "^Architecture:\s*(.*)") { $pkgArch = $matches[1].Trim() }
+                if ($line -match "^Depends:\s*(.*)") { 
+                    $depsList += ($matches[1] -replace ",", " ") -split "\s+" | ForEach-Object { $_.Trim() }
                 }
             }
         }
@@ -113,7 +111,26 @@ foreach ($ipk in $ipkFiles) {
         if ($mappedDeps) { $pkgDeps = "+" + ($mappedDeps -join " +") }
     }
 
-    if (-not $pkgName) { Write-Host "    [!] Error: Could not parse package name. Skipping." -ForegroundColor Red; continue }
+    # --- 4.5 СМАРТ-ФОЛЛБЕК (Если Windows не смог прочитать APK) ---
+    if (-not $pkgName) { 
+        Write-Host "    [!] Warning: Windows failed to extract metadata (tar format limitation)." -ForegroundColor Yellow
+        Write-Host "    [*] Activating Smart Filename Fallback..." -ForegroundColor Cyan
+        
+        # Пытаемся вытащить имя и версию из названия файла (например fastfetch-2.59.0-r1.apk)
+        if ($ipk.Name -match "^(.*?)-v?(\d.*)\.(apk|ipk)$") {
+            $pkgName = $matches[1].Trim()
+            $pkgVersion = $matches[2].Trim()
+        } else {
+            # Если формат нестандартный, просто берем имя файла без расширения
+            $pkgName = $ipk.BaseName.Trim()
+            $pkgVersion = "binary"
+        }
+        
+        # Обходим проверку архитектуры, так как мы ее не знаем (передаем ответственность на Linux)
+        if ($TargetArch) { $pkgArch = $TargetArch } else { $pkgArch = "all" }
+        
+        Write-Host "    [+] Guessed Name: $pkgName | Ver: $pkgVersion" -ForegroundColor Green
+    }
     if (-not $pkgVersion) { $pkgVersion = "binary" }
 
     # --- 5. УМНАЯ ВАЛИДАЦИЯ АРХИТЕКТУРЫ ---
@@ -195,7 +212,7 @@ endef
 
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
-	[ -f ./data.tar.gz ] && cp ./data.tar.gz $(PKG_BUILD_DIR)/ || true ; \
+	[ -f ./data.tar.gz ] && cp ./data.tar.gz $(PKG_BUILD_DIR)/ || true
 	[ -f ./data.apk ] && cp ./data.apk $(PKG_BUILD_DIR)/ || true
 endef
 
@@ -232,7 +249,6 @@ $(eval $(call BuildPackage,$(PKG_NAME)))
 '@
 
     # Сохраняем файл с принудительными Unix-окончаниями строк (LF)
-    # Это критично для сборки в Docker/Linux
     $makefileContent = $template -f $pkgName, $pkgDeps, $postinst, $pkgVersion
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     $finalContent = $makefileContent -replace "`r`n", "`n"
@@ -249,4 +265,3 @@ Write-Host "==========================================================" -Foregro
 Write-Host "  DONE: $importedCount packages imported." -ForegroundColor Cyan
 if ($ProfileID) { Write-Host "  Location: $outDir" -ForegroundColor Gray }
 Write-Host "==========================================================`n"
-# checksum:MD5=3185678cb48f67ce2764034e3724ac7f
