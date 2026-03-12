@@ -1,5 +1,5 @@
-# file : system/import_ipk.ps1
-# Скрипт импорта IPK (APK support)
+﻿# file : system/import_ipk.ps1
+# Скрипт импорта IPK/APK (APK support)
 
 param (
     [Parameter(Mandatory=$false)]
