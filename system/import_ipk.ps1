@@ -1,5 +1,5 @@
 ﻿# file : system/import_ipk.ps1
-# Скрипт импорта IPK v2.7 (apk support)
+# Скрипт импорта IPK v2.7 (version ipk/apk fix)
 param (
     [Parameter(Mandatory=$false)]
     [string]$ProfileID = "",
@@ -21,9 +21,9 @@ $overwriteAll = $false
 $importedCount = 0
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
-Write-Host "  IPK IMPORT WIZARD v2.6 [$TargetArch] [Source Mode]" -ForegroundColor Cyan
+Write-Host "  IPK IMPORT WIZARD v2.6 [$TargetArch][Source Mode]" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host " [CONTEXT] " -NoNewline -ForegroundColor Cyan
+Write-Host "[CONTEXT] " -NoNewline -ForegroundColor Cyan
 Write-Host "Profile: " -NoNewline -ForegroundColor Gray
 $ProfileDisplay = if ($ProfileID) { $ProfileID } else { "GLOBAL" }
 Write-Host "$ProfileDisplay" -ForegroundColor White
@@ -74,7 +74,8 @@ foreach ($ipk in $ipkFiles) {
                 if ($line -match "^pkgver = (.*)") { $pkgVersion = $matches[1].Trim() }
                 if ($line -match "^arch = (.*)") { $pkgArch = $matches[1].Trim() }
                 if ($line -match "^depend = (.*)") { 
-                    $depsList = $matches[1].Trim() -split "\s+" | ForEach-Object { $_.Trim() }
+                    # APK может иметь несколько строк depend =, поэтому используем +=
+                    $depsList += $matches[1].Trim() -split "\s+" | ForEach-Object { $_.Trim() }
                 }
             }
         }
@@ -92,7 +93,8 @@ foreach ($ipk in $ipkFiles) {
                 if ($line -match "^Version: (.*)") { $pkgVersion = $matches[1].Trim() }
                 if ($line -match "^Architecture: (.*)") { $pkgArch = $matches[1].Trim() }
                 if ($line -match "^Depends: (.*)") { 
-                    $depsList = (($line -split ":")[1].Trim() -replace ",", " ") -split "\s+" | ForEach-Object { $_.Trim() }
+                    # Очищено: берем сразу то, что нашли в регулярке $matches[1]
+                    $depsList = ($matches[1] -replace ",", " ") -split "\s+" | ForEach-Object { $_.Trim() }
                 }
             }
         }
@@ -192,7 +194,9 @@ define Package/$(PKG_NAME)
 endef
 
 define Build/Prepare
-	mkdir -p $(PKG_BUILD_DIR)[ -f ./data.tar.gz ] && cp ./data.tar.gz $(PKG_BUILD_DIR)/ || true[ -f ./data.apk ] && cp ./data.apk $(PKG_BUILD_DIR)/ || true
+	mkdir -p $(PKG_BUILD_DIR)
+	[ -f ./data.tar.gz ] && cp ./data.tar.gz $(PKG_BUILD_DIR)/ || true
+	[ -f ./data.apk ] && cp ./data.apk $(PKG_BUILD_DIR)/ || true
 endef
 
 define Build/Compile
@@ -202,7 +206,7 @@ endef
 define Package/$(PKG_NAME)/install
 	mkdir -p $(1)
 	# Распаковка внутри Linux сохраняет симлинки. tar -xf сам понимает формат (gz/zstd).
-	if[ -f $(PKG_BUILD_DIR)/data.tar.gz ]; then \
+	if [ -f $(PKG_BUILD_DIR)/data.tar.gz ]; then \
 		tar -xf $(PKG_BUILD_DIR)/data.tar.gz -C $(1); \
 	elif [ -f $(PKG_BUILD_DIR)/data.apk ]; then \
 		tar -xf $(PKG_BUILD_DIR)/data.apk -C $(1) --exclude=.PKGINFO --exclude=.SIGN.* --exclude=.post-install --exclude=.pre-install; \
@@ -219,6 +223,7 @@ define Package/$(PKG_NAME)/postinst
 # Проверка: если мы находимся в процессе сборки (INSTROOT), не запускаем сервисы
 if [ -z "$$IPKG_INSTROOT" ]; then
 {2}
+	:
 fi
 exit 0
 endef
@@ -244,4 +249,4 @@ Write-Host "==========================================================" -Foregro
 Write-Host "  DONE: $importedCount packages imported." -ForegroundColor Cyan
 if ($ProfileID) { Write-Host "  Location: $outDir" -ForegroundColor Gray }
 Write-Host "==========================================================`n"
-# checksum:MD5=e9a0eb8d5569d636cc6aaec1477d11b4
+# checksum:MD5=70a2ef99f61dd1467b62757fe92c72be
