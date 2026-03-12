@@ -21,7 +21,7 @@ $overwriteAll = $false
 $importedCount = 0
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
-Write-Host "  IPK IMPORT WIZARD v2.6 [$TargetArch][Source Mode]" -ForegroundColor Cyan
+Write-Host "  IPK IMPORT WIZARD v2.7 [$TargetArch][Source Mode]" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "[CONTEXT] " -NoNewline -ForegroundColor Cyan
 Write-Host "Profile: " -NoNewline -ForegroundColor Gray
