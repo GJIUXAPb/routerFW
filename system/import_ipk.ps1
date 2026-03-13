@@ -8,7 +8,7 @@ param (
     [string]$TargetArch = ""  # Подхватывается из батника (SRC_ARCH)
 )
 
-$ScriptVersion = "2.9"
+$ScriptVersion = "3.0"
 
 # --- ИНИЦИАЛИЗАЦИЯ ПУТЕЙ ---
 if ($ProfileID -ne "") {
@@ -374,4 +374,4 @@ Write-Host "==========================================================" -Foregro
 Write-Host "  DONE: $importedCount packages imported." -ForegroundColor Cyan
 if ($ProfileID) { Write-Host "  Location: $outDir" -ForegroundColor Gray }
 Write-Host "==========================================================`n"
-# checksum:MD5=dbd413da3c5d2f9b110435a446b94aff
+# checksum:MD5=dfa50fe051845d72b5a2df277c951e88

@@ -1,6 +1,6 @@
 #!/bin/bash
 # file : system/import_ipk.sh
-SCRIPT_VERSION="2.9"
+SCRIPT_VERSION="3.0"
 # Скрипт импорта IPK/APK (version ipk/apk fix)
 # Портировано с PowerShell на Bash
 # --- ПАРАМЕТРЫ ---
@@ -371,4 +371,4 @@ echo -e "${C_CYAN}==========================================================${C_
 # Авто-определение языка для паузы
 [[ "$LANG" == *"ru"* ]] && echo -e "\n Нажмите Enter, чтобы продолжить..." || echo -e "\n Press Enter to continue..."
 read -r
-# checksum:MD5=96ef98a4792ff187c12e5815faf3587b
+# checksum:MD5=73ec3d09eee128b018eb294aad239f93
