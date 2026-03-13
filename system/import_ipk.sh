@@ -90,6 +90,7 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
     PKG_ARCH=""
     PKG_DEPS=""
     POSTINST_CONTENT=""
+    PRERM_CONTENT=""
 
     if [ "$IS_APK" = true ]; then
         # 2a. Распаковка APK v3 (через Docker/apk-tools)
@@ -172,6 +173,14 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
         if [ -f "$TEMP_DIR/control_data/postinst" ]; then
             POSTINST_CONTENT=$(cat "$TEMP_DIR/control_data/postinst")
         fi
+        # Подхватываем специфичный для LuCI скрипт и склеиваем с основным
+        if [ -f "$TEMP_DIR/control_data/postinst-pkg" ]; then
+            POSTINST_CONTENT="$POSTINST_CONTENT"$'\n'"$(cat "$TEMP_DIR/control_data/postinst-pkg")"
+        fi
+        # Подхватываем скрипт удаления (если есть)
+        if [ -f "$TEMP_DIR/control_data/prerm" ]; then
+            PRERM_CONTENT=$(cat "$TEMP_DIR/control_data/prerm")
+        fi
     fi
 
     # --- 4.5 СМАРТ-ФОЛЛБЕК ---
@@ -242,36 +251,37 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
     fi
 
     # --- POSTINST BLOCK PREPARATION ---
+    # --- СБОРКА УПРАВЛЯЮЩИХ СКРИПТОВ (POSTINST / PRERM) ---
     POSTINST_BLOCK=""
-    if [ -n "$POSTINST_CONTENT" ]; then
-        # Очищаем контент от стандартного автосгенерированного бойлерплейта OpenWrt,
-        # чтобы избежать дублирования кода в Makefile.
-        CLEAN_POSTINST=$(echo "$POSTINST_CONTENT" | sed '/^#!/d' | grep -vE 'IPKG_NO_SCRIPT|IPKG_INSTROOT|default_postinst|add_group_and_user|export root=|export pkgname=' | awk 'NF' | sed 's/\$/$$/g')
+    # Проверяем, есть ли полезная нагрузка (игнорируя пустые строки/пробелы)
+    if [ -n "$(echo "$POSTINST_CONTENT" | tr -d '[:space:]')" ]; then
+        # Удаляем только шебанги и экранируем $ для Makefile. Всю логику переносим 1:1.
+        CLEAN_POSTINST=$(echo "$POSTINST_CONTENT" | sed '/^#!/d' | sed 's/\$/$$/g')
         
-        if [ -n "$CLEAN_POSTINST" ]; then
-            read -r -d '' POSTINST_BLOCK << EOP
+        read -r -d '' POSTINST_BLOCK << EOP
 define Package/\$(PKG_NAME)/postinst
 #!/bin/sh
-# Проверка: если мы находимся в процессе сборки (INSTROOT), не запускаем сервисы
-if [ -z "\$\$IPKG_INSTROOT" ]; then
-[ "\$\$IPKG_NO_SCRIPT" = "1" ] && exit 0
-[ -s "\$\$IPKG_INSTROOT/lib/functions.sh" ] || exit 0
-. "\$\$IPKG_INSTROOT/lib/functions.sh"
-default_postinst \$\$0 \$\$@
 $CLEAN_POSTINST
-fi
-exit 0
 endef
 EOP
-        fi
-    fi
-
-    # Если скрипта не было, либо он состоял ТОЛЬКО из стандартного бойлерплейта
-    if [ -z "$POSTINST_BLOCK" ]; then
+    else
+        # Заглушка, если скриптов вообще нет
         read -r -d '' POSTINST_BLOCK << EOP
 define Package/\$(PKG_NAME)/postinst
 #!/bin/sh
 :
+endef
+EOP
+    fi
+
+    PRERM_BLOCK=""
+    if [ -n "$(echo "$PRERM_CONTENT" | tr -d '[:space:]')" ]; then
+        CLEAN_PRERM=$(echo "$PRERM_CONTENT" | sed '/^#!/d' | sed 's/\$/$$/g')
+        
+        read -r -d '' PRERM_BLOCK << EOP
+define Package/\$(PKG_NAME)/prerm
+#!/bin/sh
+$CLEAN_PRERM
 endef
 EOP
     fi
@@ -328,6 +338,8 @@ endef
 
 $POSTINST_BLOCK
 
+$PRERM_BLOCK
+
 \$(eval \$(call BuildPackage,\$(PKG_NAME)))
 EOF
     } > "$TARGET_PKG_DIR/Makefile"
@@ -347,4 +359,4 @@ echo -e "${C_CYAN}==========================================================${C_
 # Авто-определение языка для паузы
 [[ "$LANG" == *"ru"* ]] && echo -e "\n Нажмите Enter, чтобы продолжить..." || echo -e "\n Press Enter to continue..."
 read -r
-# checksum:MD5=90376912ec387b9d12380c6a8aef7acb
+# checksum:MD5=2e8b979071eb7d96ad89ea301ffbe952
