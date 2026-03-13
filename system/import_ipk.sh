@@ -1,8 +1,8 @@
 #!/bin/bash
 # file : system/import_ipk.sh
 SCRIPT_VERSION="3.0"
-# Скрипт импорта IPK/APK (version ipk/apk fix)
-# Портировано с PowerShell на Bash
+# Скрипт импорта IPK/APK (Синхронизирован с PS1 v3.0)
+
 # --- ПАРАМЕТРЫ ---
 PROFILE_ID=$1
 TARGET_ARCH=$2
@@ -17,7 +17,7 @@ C_WHT='\033[1;37m'
 C_RST='\033[0m'
 
 # --- ПРОВЕРКА ЗАВИСИМОСТЕЙ ---
-for cmd in curl jq tar ar docker; do
+for cmd in curl jq tar ar docker date; do
     if ! command -v $cmd &> /dev/null; then
         echo -e "${C_RED}Ошибка: утилита '$cmd' не найдена. Установите её (sudo apt install binutils)${C_RST}"
     fi
@@ -86,7 +86,7 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
     mkdir -p "$TEMP_DIR/control_data"
 
     PKG_NAME=""
-    PKG_VERSION="binary"
+    PKG_VERSION=""
     PKG_ARCH=""
     PKG_DEPS=""
     POSTINST_CONTENT=""
@@ -96,19 +96,17 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
         # 2a. Распаковка APK v3 (через Docker/apk-tools)
         echo -e "    ${C_CYAN}[*] APK v3 detected. Using Docker 'apk adbdump'...${C_RST}"
         
-        # Получаем абсолютный путь к папке файла для Docker
-        APK_DIR=$(cd "$(dirname "$IPK_PATH")" && pwd)
+        APK_ABS_DIR=$(cd "$(dirname "$IPK_PATH")" && pwd)
         APK_FILE=$(basename "$IPK_PATH")
         
-        # Выполняем docker adbdump
-        ADBDUMP_OUT=$(docker run --rm -v "$APK_DIR:/data" alpine:latest apk adbdump "/data/$APK_FILE" 2>/dev/null)
+        ADBDUMP_OUT=$(docker run --rm -v "$APK_ABS_DIR:/data" alpine:latest apk adbdump "/data/$APK_FILE" 2>/dev/null)
         
         if [ -n "$ADBDUMP_OUT" ]; then
-            PKG_NAME=$(echo "$ADBDUMP_OUT" | grep -m 1 "^  name: " | sed 's/.*name: //')
-            PKG_VERSION=$(echo "$ADBDUMP_OUT" | grep -m 1 "^  version: " | sed 's/.*version: //')
-            PKG_ARCH=$(echo "$ADBDUMP_OUT" | grep -m 1 "^  arch: " | sed 's/.*arch: //')
+            PKG_NAME=$(echo "$ADBDUMP_OUT" | grep -m 1 "^  name: " | sed 's/.*name: //' | tr -d '\r')
+            PKG_VERSION=$(echo "$ADBDUMP_OUT" | grep -m 1 "^  version: " | sed 's/.*version: //' | tr -d '\r')
+            PKG_ARCH=$(echo "$ADBDUMP_OUT" | grep -m 1 "^  arch: " | sed 's/.*arch: //' | tr -d '\r')
             
-            # Парсинг зависимостей (строго по YAML отступам, без привязки к provides)
+            # Парсинг зависимостей
             RAW_DEPS=$(echo "$ADBDUMP_OUT" | awk '
               /^  depends:/ {in_deps=1; next}
               in_deps {
@@ -122,80 +120,44 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
                 [ -z "$PKG_DEPS" ] && PKG_DEPS="+$dep" || PKG_DEPS="$PKG_DEPS +$dep"
             done
             
-            # Извлечение post-install (строго 4 пробела отступа, остановка на других ключах)
-            POSTINST_CONTENT=$(echo "$ADBDUMP_OUT" | awk '
-              /^  post-install: \|/ {in_script=1; next}
-              in_script {
-                if (match($0, /^    /)) { sub(/^    /, ""); print }
-                else if ($0 ~ /^[ \t]*$/) { print "" }
-                else if (match($0, /^  [a-z]/) || match($0, /^#/)) { in_script=0 }
-              }
-            ')
-            # Извлечение pre-deinstall (аналог prerm)
-            PRERM_CONTENT=$(echo "$ADBDUMP_OUT" | awk '
-              /^  pre-deinstall: \|/ {in_script=1; next}
-              in_script {
-                if (match($0, /^    /)) { sub(/^    /, ""); print }
-                else if ($0 ~ /^[ \t]*$/) { print "" }
-                else if (match($0, /^  [a-z]/) || match($0, /^#/)) { in_script=0 }
-              }
-            ')
+            # Извлечение скриптов
+            POSTINST_CONTENT=$(echo "$ADBDUMP_OUT" | awk '/^  post-install: \|/ {in_s=1; next} in_s {if (match($0, /^    /)) {sub(/^    /, ""); print} else if ($0 ~ /^[ \t]*$/) {print ""} else if (match($0, /^  [a-z]/)) {in_s=0}}')
+            PRERM_CONTENT=$(echo "$ADBDUMP_OUT" | awk '/^  pre-deinstall: \|/ {in_s=1; next} in_s {if (match($0, /^    /)) {sub(/^    /, ""); print} else if ($0 ~ /^[ \t]*$/) {print ""} else if (match($0, /^  [a-z]/)) {in_s=0}}')
+            
             echo -e "    ${C_GRN}[+] Metadata extracted successfully via Docker.${C_RST}"
         else
-            echo -e "    ${C_RED}[!] Docker command failed or returned empty output.${C_RST}"
-            PKG_NAME="" # Отправляем на Smart Fallback
+            echo -e "    ${C_RED}[!] Docker command failed. Fallback to Smart Guess...${C_RST}"
         fi
     else
         # 2b. Распаковка IPK
-        if tar -tf "$IPK_PATH" &>/dev/null; then
-            tar -xf "$IPK_PATH" -C "$TEMP_DIR/unpack"
-        else
-            cd "$TEMP_DIR/unpack" && ar x "../../../$IPK_PATH" && cd - > /dev/null
-        fi
-
+        tar -xf "$IPK_PATH" -C "$TEMP_DIR/unpack" 2>/dev/null
         if [ -f "$TEMP_DIR/unpack/control.tar.gz" ]; then
             tar -xf "$TEMP_DIR/unpack/control.tar.gz" -C "$TEMP_DIR/control_data"
-        else
-            echo -e "    ${C_RED}[!] control.tar.gz not found inside IPK.${C_RST}"
-            continue
-        fi
-
-        # Парсинг Control файла
-        CONTROL_FILE="$TEMP_DIR/control_data/control"
-        if [ -f "$CONTROL_FILE" ]; then
-            PKG_NAME=$(grep "^Package: " "$CONTROL_FILE" | sed 's/^Package: //' | tr -d '\r ')
-            PKG_VERSION=$(grep "^Version: " "$CONTROL_FILE" | sed 's/^Version: //' | tr -d '\r ')
-            PKG_ARCH=$(grep "^Architecture: " "$CONTROL_FILE" | sed 's/^Architecture: //' | tr -d '\r ')
-            
-            RAW_DEPS=$(grep "^Depends: " "$CONTROL_FILE" | sed 's/^Depends: //' | tr -d '\r')
-            CLEAN_DEPS=$(echo "$RAW_DEPS" | sed 's/,/ /g' \
-                | sed 's/libnetfilter-queue1/libnetfilter-queue/g' \
-                | sed 's/libnfnetlink0/libnfnetlink/g' \
-                | sed 's/libopenssl1.1/libopenssl/g')
-            
-            for dep in $CLEAN_DEPS; do
-                [ -z "$dep" ] && continue
-                [ -z "$PKG_DEPS" ] && PKG_DEPS="+$dep" || PKG_DEPS="$PKG_DEPS +$dep"
-            done
-        fi
-
-        if [ -f "$TEMP_DIR/control_data/postinst" ]; then
-            POSTINST_CONTENT=$(cat "$TEMP_DIR/control_data/postinst")
-        fi
-        # Подхватываем специфичный для LuCI скрипт и склеиваем с основным
-        if [ -f "$TEMP_DIR/control_data/postinst-pkg" ]; then
-            POSTINST_CONTENT="$POSTINST_CONTENT"$'\n'"$(cat "$TEMP_DIR/control_data/postinst-pkg")"
-        fi
-        # Подхватываем скрипт удаления (если есть)
-        if [ -f "$TEMP_DIR/control_data/prerm" ]; then
-            PRERM_CONTENT=$(cat "$TEMP_DIR/control_data/prerm")
+            CONTROL_FILE="$TEMP_DIR/control_data/control"
+            if [ -f "$CONTROL_FILE" ]; then
+                PKG_NAME=$(grep "^Package: " "$CONTROL_FILE" | sed 's/^Package: //' | tr -d '\r ')
+                PKG_VERSION=$(grep "^Version: " "$CONTROL_FILE" | sed 's/^Version: //' | tr -d '\r ')
+                PKG_ARCH=$(grep "^Architecture: " "$CONTROL_FILE" | sed 's/^Architecture: //' | tr -d '\r ')
+                
+                CLEAN_DEPS=$(grep "^Depends: " "$CONTROL_FILE" | sed 's/^Depends: //' | tr -d '\r' | sed 's/,/ /g' \
+                    | sed 's/libnetfilter-queue1/libnetfilter-queue/g' \
+                    | sed 's/libnfnetlink0/libnfnetlink/g' \
+                    | sed 's/libopenssl1.1/libopenssl/g')
+                
+                for dep in $CLEAN_DEPS; do
+                    [ -z "$dep" ] && continue
+                    [ -z "$PKG_DEPS" ] && PKG_DEPS="+$dep" || PKG_DEPS="$PKG_DEPS +$dep"
+                done
+            fi
+            [ -f "$TEMP_DIR/control_data/postinst" ] && POSTINST_CONTENT=$(cat "$TEMP_DIR/control_data/postinst")
+            [ -f "$TEMP_DIR/control_data/postinst-pkg" ] && POSTINST_CONTENT="$POSTINST_CONTENT"$'\n'"$(cat "$TEMP_DIR/control_data/postinst-pkg")"
+            [ -f "$TEMP_DIR/control_data/prerm" ] && PRERM_CONTENT=$(cat "$TEMP_DIR/control_data/prerm")
         fi
     fi
 
     # --- 4.5 СМАРТ-ФОЛЛБЕК ---
     if [ -z "$PKG_NAME" ]; then
-        echo -e "    ${C_YEL}[!] Warning: Failed to extract metadata. Activating Smart Fallback...${C_RST}"
-        
+        echo -e "    ${C_YEL}[!] Activating Smart Filename Fallback...${C_RST}"
         if [[ "$IPK_NAME" =~ ^(.*)-v?([0-9].*)\.(apk|ipk)$ ]]; then
             PKG_NAME="${BASH_REMATCH[1]}"
             PKG_VERSION="${BASH_REMATCH[2]}"
@@ -208,7 +170,16 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
     fi
     [ -z "$PKG_VERSION" ] && PKG_VERSION="binary"
 
-    # 6. ВАЛИДАЦИЯ АРХИТЕКТУРЫ
+    # --- 4.7 НОРМАЛИЗАЦИЯ ВЕРСИИ И РЕЛИЗА ---
+    PKG_RELEASE="1"
+    if [[ "$PKG_VERSION" == *-* ]]; then
+        TEMP_REL="${PKG_VERSION##*-}"
+        PKG_VERSION="${PKG_VERSION%-*}"
+        PKG_RELEASE=$(echo "$TEMP_REL" | tr -dc '0-9')
+        [ -z "$PKG_RELEASE" ] && PKG_RELEASE="1"
+    fi
+
+    # --- 5. ВАЛИДАЦИЯ АРХИТЕКТУРЫ ---
     if [ "$PKG_ARCH" == "all" ]; then
         echo -e "    Architecture: all (Universal) - ${C_GRN}OK${C_RST}"
     elif [ -n "$TARGET_ARCH" ]; then
@@ -230,7 +201,38 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
         [[ ! "$confirm" =~ ^[Yy]$ ]] && continue
     fi
 
-    # 7. Логика перезаписи
+    # --- 6. ОБРАБОТКА СКРИПТОВ ---
+    POSTINST_BLOCK=""
+    if [ "$IS_APK" = false ] && [ -n "$(echo "$POSTINST_CONTENT" | tr -d '[:space:]')" ]; then        
+        CLEAN_POST=$(echo "$POSTINST_CONTENT" | sed '/^#!/d' | sed 's/\$/$$/g' | sed 's/default_postinst \$\$0 \$\$@/&\n\n/')
+        read -r -d '' POSTINST_BLOCK << EOP
+define Package/\$(PKG_NAME)/postinst
+#!/bin/sh
+$CLEAN_POST
+endef
+EOP
+    elif [ "$IS_APK" = false ]; then
+        read -r -d '' POSTINST_BLOCK << EOP
+define Package/\$(PKG_NAME)/postinst
+#!/bin/sh
+:
+endef
+EOP
+    fi
+
+    PRERM_BLOCK=""
+    if [ "$IS_APK" = false ] && [ -n "$(echo "$PRERM_CONTENT" | tr -d '[:space:]')" ]; then
+        CLEAN_PRE=$(echo "$PRERM_CONTENT" | sed '/^#!/d' | sed 's/\$/$$/g')
+        read -r -d '' PRERM_BLOCK << EOP
+define Package/\$(PKG_NAME)/prerm
+#!/bin/sh
+$CLEAN_PRE
+exit 0
+endef
+EOP
+    fi
+
+    # --- 7. ЛОГИКА ПЕРЕЗАПИСИ ---
     TARGET_PKG_DIR="$OUT_DIR/$PKG_NAME"
     if [ -d "$TARGET_PKG_DIR" ]; then
         if [ "$OVERWRITE_ALL" = false ]; then
@@ -246,69 +248,47 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
         fi
     fi
 
-    # 8. Финализация импорта
+    # --- 8. ФИНАЛИЗАЦИЯ И УСТАНОВКА ---
     mkdir -p "$TARGET_PKG_DIR"
+    INSTALL_BLOCK=""
     if [ "$IS_APK" = true ]; then
         cp "$IPK_PATH" "$TARGET_PKG_DIR/data.apk"
-    else
-        if [ -f "$TEMP_DIR/unpack/data.tar.gz" ]; then
-            cp "$TEMP_DIR/unpack/data.tar.gz" "$TARGET_PKG_DIR/data.tar.gz"
-        else
-            echo -e "    ${C_RED}[!] Error: data.tar.gz not found!${C_RST}"
-            continue
-        fi
-    fi
-
-    # --- POSTINST BLOCK PREPARATION ---
-    # --- СБОРКА УПРАВЛЯЮЩИХ СКРИПТОВ (POSTINST / PRERM) ---
-    POSTINST_BLOCK=""
-    # Проверяем, есть ли полезная нагрузка (игнорируя пустые строки/пробелы)
-    if [ -n "$(echo "$POSTINST_CONTENT" | tr -d '[:space:]')" ]; then
-        # Удаляем только шебанги и экранируем $ для Makefile. Всю логику переносим 1:1.
-        CLEAN_POSTINST=$(echo "$POSTINST_CONTENT" | sed '/^#!/d' | sed 's/\$/$$/g')
-        # ИЗМЕНЕНИЕ: Добавляем два переноса строки после default_postinst $$0 $$@ по запросу пользователя
-        CLEAN_POSTINST=$(echo "$CLEAN_POSTINST" | sed 's|default_postinst $$0 $$@|&\n\n|')
-
-        read -r -d '' POSTINST_BLOCK << EOP
-define Package/\$(PKG_NAME)/postinst
-#!/bin/sh
-$CLEAN_POSTINST
+        read -r -d '' INSTALL_BLOCK << EOP
+define Package/\$(PKG_NAME)/install
+	\$(INSTALL_DIR) \$(1)/usr/lib/apk
+	\$(INSTALL_BIN) \$(PKG_BUILD_DIR)/data.apk \$(1)/usr/lib/apk/\$(PKG_NAME).apk
 endef
 EOP
     else
-        # Заглушка, если скриптов вообще нет
-        read -r -d '' POSTINST_BLOCK << EOP
-define Package/\$(PKG_NAME)/postinst
-#!/bin/sh
-:
+        [ -f "$TEMP_DIR/unpack/data.tar.gz" ] && cp "$TEMP_DIR/unpack/data.tar.gz" "$TARGET_PKG_DIR/data.tar.gz"
+        read -r -d '' INSTALL_BLOCK << EOP
+define Package/\$(PKG_NAME)/install
+	mkdir -p \$(1)
+	if [ -f \$(PKG_BUILD_DIR)/data.tar.gz ]; then \\
+		tar -xf \$(PKG_BUILD_DIR)/data.tar.gz -C \$(1); \\
+	fi
+	# Принудительная правка прав
+	[ -d \$(1)/etc/init.d ] && chmod +x \$(1)/etc/init.d/* || true
+	[ -d \$(1)/usr/bin ] && chmod +x \$(1)/usr/bin/* || true
+	[ -d \$(1)/usr/sbin ] && chmod +x \$(1)/usr/sbin/* || true
+	[ -d \$(1)/lib/upgrade/keep.d ] && chmod 644 \$(1)/lib/upgrade/keep.d/* || true
 endef
 EOP
     fi
 
-    PRERM_BLOCK=""
-    if [ -n "$(echo "$PRERM_CONTENT" | tr -d '[:space:]')" ]; then
-        CLEAN_PRERM=$(echo "$PRERM_CONTENT" | sed '/^#!/d' | sed 's/\$/$$/g')
-        
-        read -r -d '' PRERM_BLOCK << EOP
-define Package/\$(PKG_NAME)/prerm
-#!/bin/sh
-$CLEAN_PRERM
-exit 0
-endef
-EOP
-    fi
-
-    # 9. ГЕНЕРАЦИЯ MAKEFILE
+    # --- 9. ГЕНЕРАЦИЯ MAKEFILE ---
+    TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
     {
+    echo "# Generated by import_ipk.sh  v$SCRIPT_VERSION on $TIMESTAMP"
+    echo ""
     cat <<EOF
 include \$(TOPDIR)/rules.mk
 
 PKG_NAME:=$PKG_NAME
 PKG_VERSION:=$PKG_VERSION
-PKG_RELEASE:=1
+PKG_RELEASE:=$PKG_RELEASE
 
 include \$(INCLUDE_DIR)/package.mk
-# Запрещаем системе сборки изменять готовые бинарники (решает ошибки Strip/Patchelf)
 
 STRIP:=:
 PATCHELF:=:
@@ -333,21 +313,7 @@ define Build/Compile
 	# Nothing to compile
 endef
 
-define Package/\$(PKG_NAME)/install
-	mkdir -p \$(1)
-	# Распаковка внутри Linux сохраняет симлинки.
-	if [ -f \$(PKG_BUILD_DIR)/data.tar.gz ]; then \\
-		tar -xf \$(PKG_BUILD_DIR)/data.tar.gz -C \$(1); \\
-	elif [ -f \$(PKG_BUILD_DIR)/data.apk ]; then \\
-		apk add --root \$(1) --initdb --no-network --no-scripts --no-cache --allow-untrusted --usermode \$(PKG_BUILD_DIR)/data.apk; \\
-		rm -rf \$(1)/lib/apk \$(1)/etc/apk; \\
-	fi
-	# Принудительная правка прав для скриптов и бинарников
-	[ -d \$(1)/etc/init.d ] && chmod +x \$(1)/etc/init.d/* || true
-	[ -d \$(1)/usr/bin ] && chmod +x \$(1)/usr/bin/* || true
-	[ -d \$(1)/usr/sbin ] && chmod +x \$(1)/usr/sbin/* || true
-	[ -d \$(1)/lib/upgrade/keep.d ] && chmod 644 \$(1)/lib/upgrade/keep.d/* || true
-endef
+$INSTALL_BLOCK
 
 $POSTINST_BLOCK
 
@@ -363,13 +329,12 @@ done
 
 # Очистка
 rm -rf "$TEMP_DIR"
-
 echo -e "${C_CYAN}==========================================================${C_RST}"
 echo -e "  DONE: $IMPORTED_COUNT packages imported."
 [ -n "$PROFILE_ID" ] && echo -e "  Location: $OUT_DIR"
 echo -e "${C_CYAN}==========================================================${C_RST}"
 
 # Авто-определение языка для паузы
-[[ "$LANG" == *"ru"* ]] && echo -e "\n Нажмите Enter, чтобы продолжить..." || echo -e "\n Press Enter to continue..."
+[[ "$LANG" == *"ru"* ]] && echo -ne "\n Нажмите Enter..." || echo -ne "\n Press Enter..."
 read -r
-# checksum:MD5=74eac26f8476fda520f45573853f1e30
+# checksum:MD5=dcc733d2716f372869bfb73abd8307a8

@@ -347,7 +347,6 @@ PKG_VERSION:={{PKG_VERSION}}
 PKG_RELEASE:={{PKG_RELEASE}}
 
 include $(INCLUDE_DIR)/package.mk
-# Запрещаем системе сборки изменять готовые бинарники (решает ошибки Strip/Patchelf)
 
 STRIP:=:
 PATCHELF:=:
@@ -405,4 +404,4 @@ Write-Host "==========================================================" -Foregro
 Write-Host "  DONE: $importedCount packages imported." -ForegroundColor Cyan
 if ($ProfileID) { Write-Host "  Location: $outDir" -ForegroundColor Gray }
 Write-Host "==========================================================`n"
-# checksum:MD5=f377799995641f049d7946c18f05a50c
+# checksum:MD5=b5a1fd3d1ccee9eaf1e21fb0217e9807

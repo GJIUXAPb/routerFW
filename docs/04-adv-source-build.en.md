@@ -135,17 +135,26 @@ How to build firmware using a complex `defconfig` from a third-party developer:
 4.  **Expand**: Run **Menuconfig** again. The system detects the minimalist file (e.g., 11KB) and **automatically expands it** into a full `.config` (~400KB), resolving all dependencies.
 5.  **Finalize**: Upon exit, select **Y** to update the profile. The Builder will compress the settings back into a clean diff and save them into your `.conf`.
 
+---
 
-   * package/<имя_пакета>/compile: Это цель make, которая указывает системе сборки OpenWrt скомпилировать конкретный пакет. Замените <имя_пакета> на фактическое имя директории пакета в openwrt/buildroot/package/.
-   * V=s: Этот флаг делает вывод сборки более подробным (verbose), что очень полезно для отладки, если что-то пойдет не так.
+### 🛠️ 9. Advanced Package Compilation
 
-  Пример:
+This section covers commands for advanced users who need to manually compile or recompile specific packages within the OpenWrt build system.
 
-  Если вы хотите пересобрать пакет luci-app-samba4, команда будет такой:
+*   **`package/<package_name>/compile`**: This `make` target instructs the OpenWrt build system to compile a specific package. Replace `<package_name>` with the actual directory name of the package in `openwrt/buildroot/package/`.
+*   **`V=s`**: This flag makes the build output more verbose, which is very useful for debugging if something goes wrong.
 
+**Example:**
 
-   make package/luci-app-samba4/compile V=s
+If you want to recompile the `luci-app-samba4` package, the command would be:
 
-  Если вы просто хотите собрать пакет, а не пересобирать, и он ещё не был собран, можно использовать:
+```bash
+make package/luci-app-samba4/compile V=s
+```
 
-   make package/<имя_пакета>/install V=s
+If you just want to clean cache of package, you can use:
+
+```bash
+make package/<package_name>/clean V=s
+```
+# checksum:MD5=3284f7f66cdcc3d7d7f9522679a7c4ed
