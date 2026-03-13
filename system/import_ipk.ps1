@@ -1,4 +1,4 @@
-﻿# file : system/import_ipk.ps1
+# file : system/import_ipk.ps1
 # Скрипт импорта IPK/APK (APK support)
 
 param (
@@ -201,6 +201,15 @@ foreach ($ipk in $ipkFiles) {
     }
     if (-not $pkgVersion) { $pkgVersion = "binary" }
 
+    # --- 4.7 НОРМАЛИЗАЦИЯ ВЕРСИИ И РЕЛИЗА (Fix for APK r-suffixes) ---
+    $pkgRelease = "1"
+    if ($pkgVersion -match "-") {
+        $vParts = $pkgVersion -split "-"
+        $pkgVersion = $vParts[0] # Забираем чистую версию (напр. 2.59.0)
+        $revPart = $vParts[1] -replace '\D', '' # Оставляем только цифры из хвоста (r1 -> 1)
+        if ($revPart) { $pkgRelease = $revPart }
+    }
+
     # --- 5. УМНАЯ ВАЛИДАЦИЯ АРХИТЕКТУРЫ ---
     if ($pkgArch -eq "all") {
         Write-Host "    Architecture: all (Universal) - OK" -ForegroundColor Green
@@ -297,13 +306,43 @@ endef
 "@ 
     }
 
-    # 9.3 Сборка финального Makefile из нерасширяемого шаблона
+# 9.2.5 Подготовка блока Install (APK vs IPK)
+    $installBlock = ""
+    if ($isApk) {
+        # Нативный метод для OpenWrt 25.x (проброс целого пакета)
+        $installBlock = @"
+define Package/`$(PKG_NAME)/install
+`t`$(INSTALL_DIR) `$(1)/usr/lib/apk
+`t`$(INSTALL_BIN) `$(PKG_BUILD_DIR)/data.apk `$(1)/usr/lib/apk/`$(PKG_NAME).apk
+endef
+"@
+        # Очищаем скрипты враппера, система сама выполнит их из оригинального APK
+        $postinstBlock = ""
+        $prermBlock = ""
+    } else {
+        # Оставляем старый надежный метод распаковки для IPK
+        $installBlock = @"
+define Package/`$(PKG_NAME)/install
+`tmkdir -p `$(1)
+`tif [ -f `$(PKG_BUILD_DIR)/data.tar.gz ]; then \
+`t`ttar -xf `$(PKG_BUILD_DIR)/data.tar.gz -C `$(1); \
+`tfi
+`t# Принудительная правка прав
+`t[ -d `$(1)/etc/init.d ] && chmod +x `$(1)/etc/init.d/* || true
+`t[ -d `$(1)/usr/bin ] && chmod +x `$(1)/usr/bin/* || true
+`t[ -d `$(1)/usr/sbin ] && chmod +x `$(1)/usr/sbin/* || true
+`t[ -d `$(1)/lib/upgrade/keep.d ] && chmod 644 `$(1)/lib/upgrade/keep.d/* || true
+endef
+"@
+    }
+
+    # 9.3 Сборка финального Makefile из нерасширяемого шаблона    
     $template = @'
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:={{PKG_NAME}}
 PKG_VERSION:={{PKG_VERSION}}
-PKG_RELEASE:=1
+PKG_RELEASE:={{PKG_RELEASE}}
 
 include $(INCLUDE_DIR)/package.mk
 # Запрещаем системе сборки изменять готовые бинарники (решает ошибки Strip/Patchelf)
@@ -328,21 +367,7 @@ define Build/Compile
 	# Nothing to compile
 endef
 
-define Package/$(PKG_NAME)/install
-	mkdir -p $(1)
-	# Распаковка внутри Linux сохраняет симлинки.
-	if [ -f $(PKG_BUILD_DIR)/data.tar.gz ]; then \
-		tar -xf $(PKG_BUILD_DIR)/data.tar.gz -C $(1); \
-	elif [ -f $(PKG_BUILD_DIR)/data.apk ]; then \
-		apk add --root $(1) --initdb --no-network --no-cache --no-scripts --allow-untrusted --usermode $(PKG_BUILD_DIR)/data.apk; \
-		rm -rf $(1)/lib/apk $(1)/etc/apk; \
-	fi
-	# Принудительная правка прав для скриптов и бинарников
-	[ -d $(1)/etc/init.d ] && chmod +x $(1)/etc/init.d/* || true
-	[ -d $(1)/usr/bin ] && chmod +x $(1)/usr/bin/* || true
-	[ -d $(1)/usr/sbin ] && chmod +x $(1)/usr/sbin/* || true
-	[ -d $(1)/lib/upgrade/keep.d ] && chmod 644 $(1)/lib/upgrade/keep.d/* || true
-endef
+{{INSTALL_BLOCK}}
 
 {{POSTINST_BLOCK}}
 
@@ -354,8 +379,10 @@ $(eval $(call BuildPackage,$(PKG_NAME)))
 
     # Последовательно заменяем плейсхолдеры
     $makefileContent = $template.Replace('{{PKG_NAME}}', $pkgName)
-    $makefileContent = $makefileContent.Replace('{{PKG_VERSION}}', $pkgVersion)
+    $makefileContent = $makefileContent.Replace('{{PKG_VERSION}}', $pkgVersion)    
+    $makefileContent = $makefileContent.Replace('{{PKG_RELEASE}}', $pkgRelease)
     $makefileContent = $makefileContent.Replace('{{DEPENDS_LINE}}', $dependLine)
+    $makefileContent = $makefileContent.Replace('{{INSTALL_BLOCK}}', $installBlock)
     $makefileContent = $makefileContent.Replace('{{POSTINST_BLOCK}}', $postinstBlock)
     $makefileContent = $makefileContent.Replace('{{PRERM_BLOCK}}', $prermBlock)
 
