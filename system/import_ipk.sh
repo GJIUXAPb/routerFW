@@ -117,7 +117,8 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
             ')
             for dep in $RAW_DEPS; do
                 if [[ "$dep" =~ ^(so|cmd|pc): ]]; then continue; fi
-                [[ "$dep" == "libc" || "$dep" == "libgcc" || -z "$dep" ]] && continue[ -z "$PKG_DEPS" ] && PKG_DEPS="+$dep" || PKG_DEPS="$PKG_DEPS +$dep"
+                [ -z "$dep" ] && continue
+                [ -z "$PKG_DEPS" ] && PKG_DEPS="+$dep" || PKG_DEPS="$PKG_DEPS +$dep"
             done
             
             # Извлечение post-install (строго 4 пробела отступа, остановка на других ключах)
@@ -163,7 +164,7 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
                 | sed 's/libopenssl1.1/libopenssl/g')
             
             for dep in $CLEAN_DEPS; do
-                [[ "$dep" == "libc" || "$dep" == "libgcc" || -z "$dep" ]] && continue
+                [ -z "$dep" ] && continue
                 [ -z "$PKG_DEPS" ] && PKG_DEPS="+$dep" || PKG_DEPS="$PKG_DEPS +$dep"
             done
         fi
@@ -243,11 +244,12 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
     # --- POSTINST BLOCK PREPARATION ---
     POSTINST_BLOCK=""
     if [ -n "$POSTINST_CONTENT" ]; then
-        # Если есть контент, создаем полный блок.
-        # Экранируем `$` и удаляем shebang.
-        CLEAN_POSTINST=$(echo "$POSTINST_CONTENT" | sed '/^#!/d' | sed 's/\$/$$/g')
+        # Очищаем контент от стандартного автосгенерированного бойлерплейта OpenWrt,
+        # чтобы избежать дублирования кода в Makefile.
+        CLEAN_POSTINST=$(echo "$POSTINST_CONTENT" | sed '/^#!/d' | grep -vE 'IPKG_NO_SCRIPT|IPKG_INSTROOT|default_postinst|add_group_and_user|export root=|export pkgname=' | awk 'NF' | sed 's/\$/$$/g')
         
-        read -r -d '' POSTINST_BLOCK << EOP
+        if [ -n "$CLEAN_POSTINST" ]; then
+            read -r -d '' POSTINST_BLOCK << EOP
 define Package/\$(PKG_NAME)/postinst
 #!/bin/sh
 # Проверка: если мы находимся в процессе сборки (INSTROOT), не запускаем сервисы
@@ -261,8 +263,11 @@ fi
 exit 0
 endef
 EOP
-    else
-        # Если контента нет, создаем заглушку
+        fi
+    fi
+
+    # Если скрипта не было, либо он состоял ТОЛЬКО из стандартного бойлерплейта
+    if [ -z "$POSTINST_BLOCK" ]; then
         read -r -d '' POSTINST_BLOCK << EOP
 define Package/\$(PKG_NAME)/postinst
 #!/bin/sh
