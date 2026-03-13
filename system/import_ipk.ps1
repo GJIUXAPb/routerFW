@@ -63,7 +63,7 @@ foreach ($ipk in $ipkFiles) {
     $null = New-Item -ItemType Directory -Path "$tempDir\control_data" -Force
     
     $isApk = ($ipk.Extension -eq ".apk")
-    $pkgName = ""; $pkgVersion = ""; $pkgDeps = ""; $pkgArch = ""; $postinst = ""; $depsList = @()
+    $pkgName = ""; $pkgVersion = ""; $pkgDeps = ""; $pkgArch = ""; $postinst = ""; $prerm = ""; $depsList = @()
 
     if ($isApk) {
         # 2a. Распаковка APK v3 (через Docker/apk-tools)
@@ -108,7 +108,13 @@ foreach ($ipk in $ipkFiles) {
                 $postinst = ""
             }
             Write-Host "    [+] Metadata extracted successfully via Docker." -ForegroundColor Green
-
+            # Regex для pre-deinstall (аналог prerm)
+            $prermMatch = [regex]::Match($adbdumpOutputString, '(?ms)pre-deinstall:\s*\|(.*?)(?=\n\s*[a-zA-Z\-]+:\s*\||\n#|$)')
+            if ($prermMatch.Success) {
+                $prerm = ($prermMatch.Groups[1].Value -split '\n' | ForEach-Object { if ($_.Length -gt 4) { $_.Substring(4) } else { $_.TrimStart() } } | Out-String).Trim()
+            } else {
+                $prerm = ""
+            }
         } catch {
             Write-Host "    [!] Docker command failed. Error: $($_.Exception.Message.Split([Environment]::NewLine)[0])" -ForegroundColor Red
             $pkgName = $null # Позволяем сработать фоллбеку (старому методу)
@@ -142,7 +148,16 @@ foreach ($ipk in $ipkFiles) {
                 }
             }
         }
+        $postinst = ""
+        $prerm = ""
+        # Собираем основной postinst
         if (Test-Path "$tempDir\control_data\postinst") { $postinst = Get-Content "$tempDir\control_data\postinst" -Raw }
+        # Добавляем логику LuCI (postinst-pkg)
+        if (Test-Path "$tempDir\control_data\postinst-pkg") { 
+            $postinst += "`n" + (Get-Content "$tempDir\control_data\postinst-pkg" -Raw) 
+        }
+        # Захватываем скрипт удаления
+        if (Test-Path "$tempDir\control_data\prerm") { $prerm = Get-Content "$tempDir\control_data\prerm" -Raw }
     }
 
     # 4. Общая обработка зависимостей (Маппинг)
@@ -200,14 +215,17 @@ foreach ($ipk in $ipkFiles) {
         if ($confirm -ne "Y" -and $confirm -ne "y") { continue }
     }
 
-    # 6. Обработка Post-Install
+    # 6. Обработка управляющих скриптов (Очистка и экранирование для Makefile)
+    $cleanPostinst = ""
     if ($postinst) {
-        # Убираем лишние шебанги (#!/bin/sh), если они есть
-        $postinst = $postinst -replace '(?m)^#!/.+$', ''
-        # Экранируем знак доллара для Makefile (превращаем $ в $$)
-        $postinst = $postinst -replace '\$', '$$$$'
-        # Убираем лишние пустые строки в начале и конце
-        $postinst = $postinst.Trim()
+        $cleanPostinst = ($postinst -replace '(?m)^#!/.+$', '').Trim()
+        $cleanPostinst = $cleanPostinst -replace '\$', '$$$$'
+    }
+
+    $cleanPrerm = ""
+    if ($prerm) {
+        $cleanPrerm = ($prerm -replace '(?m)^#!/.+$', '').Trim()
+        $cleanPrerm = $cleanPrerm -replace '\$', '$$$$'
     }
 
     # 7. Логика перезаписи
@@ -243,34 +261,35 @@ foreach ($ipk in $ipkFiles) {
         $dependLine = "  DEPENDS:=" + $pkgDeps
     }
 
-    # 9.2 Подготовка блока postinst
-    $postinstBlockTemplate = ""
-    if ([string]::IsNullOrEmpty($postinst)) {
-        # Если контента нет, создаем заглушку (тут одинарные кавычки, экранирование не нужно)
-        $postinstBlockTemplate = @'
-define Package/$(PKG_NAME)/postinst
-#!/bin/sh
-:
-endef
-'@
-    } else {
-        # Если есть кастомный скрипт, используем обратный апостроф ` перед $
-        $postinstBlockTemplate = @"
+    # 9.2 Подготовка блоков postinst и prerm
+    $postinstBlock = ""
+    if (-not [string]::IsNullOrWhiteSpace($cleanPostinst)) {
+        $postinstBlock = @"
 define Package/`$(PKG_NAME)/postinst
 #!/bin/sh
-# Проверка: если мы находимся в процессе сборки (INSTROOT), не запускаем сервисы
-if [ -z "`$`$IPKG_INSTROOT" ]; then
-[ "`$`$IPKG_NO_SCRIPT" = "1" ] && exit 0
-[ -s "`$`$IPKG_INSTROOT/lib/functions.sh" ] || exit 0
-. "`$`$IPKG_INSTROOT/lib/functions.sh"
-default_postinst `$`$0 `$`$@
-$postinst
-fi
+$cleanPostinst
 exit 0
 endef
 "@
+    } else {
+        $postinstBlock = @"
+define Package/`$(PKG_NAME)/postinst
+#!/bin/sh
+:
+endef
+"@
     }
-    $postinstBlock = $postinstBlockTemplate.Replace('{{PKG_NAME}}', $pkgName)
+
+    $prermBlock = ""
+    if (-not [string]::IsNullOrWhiteSpace($cleanPrerm)) {
+        $prermBlock = @"
+define Package/`$(PKG_NAME)/prerm
+#!/bin/sh
+$cleanPrerm
+exit 0
+endef
+"@ 
+    }
 
     # 9.3 Сборка финального Makefile из нерасширяемого шаблона
     $template = @'
@@ -320,6 +339,8 @@ endef
 
 {{POSTINST_BLOCK}}
 
+{{PRERM_BLOCK}}
+
 $(eval $(call BuildPackage,$(PKG_NAME)))
 
 '@
@@ -329,6 +350,7 @@ $(eval $(call BuildPackage,$(PKG_NAME)))
     $makefileContent = $makefileContent.Replace('{{PKG_VERSION}}', $pkgVersion)
     $makefileContent = $makefileContent.Replace('{{DEPENDS_LINE}}', $dependLine)
     $makefileContent = $makefileContent.Replace('{{POSTINST_BLOCK}}', $postinstBlock)
+    $makefileContent = $makefileContent.Replace('{{PRERM_BLOCK}}', $prermBlock)
 
     # Сохраняем файл с принудительными Unix-окончаниями строк (LF)
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
