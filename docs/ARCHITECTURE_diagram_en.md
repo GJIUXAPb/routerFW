@@ -138,35 +138,35 @@ To choose mode in one command, use the `ib`/`src` prefix. Mode toggle (key **M**
 ```mermaid
 flowchart TD
     BR([build_routine\nprofile.conf])
-    BR --> READ_PROFILE[Read profile vars\nIMAGE or SRC]
-    READ_PROFILE --> LEGACY{Legacy check\nURL 17/18/19 or branch 19.07/18.06?}
-    LEGACY --> |yes img| OLD_IMG[builder-oldwrt\nUbuntu 18.04]
-    LEGACY --> |no img| NEW_IMG[builder-openwrt\nUbuntu 22.04]
-    LEGACY --> |yes src| OLD_SRC[builder-src-oldwrt\nUbuntu 18.04]
-    LEGACY --> |no src| NEW_SRC[builder-src-openwrt\nUbuntu 24.04]
+    BR --> READ_PROFILE["Read profile vars\nIMAGE or SRC"]
+    READ_PROFILE --> LEGACY{"Legacy check\nURL 17/18/19 or branch 19.07/18.06?"}
+    LEGACY --> |yes img| OLD_IMG["builder-oldwrt\nUbuntu 18.04"]
+    LEGACY --> |no img| NEW_IMG["builder-openwrt\nUbuntu 22.04"]
+    LEGACY --> |yes src| OLD_SRC["builder-src-oldwrt\nUbuntu 18.04"]
+    LEGACY --> |no src| NEW_SRC["builder-src-openwrt\nUbuntu 24.04"]
 
-    OLD_IMG & NEW_IMG --> IB[ib_builder.sh\nvolumes: cache, ipk-cache\noverlay_files, input_packages]
-    IB --> IB_STEPS[Download/cache SDK\nExtract, OpenSSL fix\ncopy .ipk, ROOTFS/KERNEL\nCUSTOM_KEYS, CUSTOM_REPOS\nmake image x2]
-    IB_STEPS --> IB_OUT[Copy to\nfirmware_output/imagebuilder/<id>/<ts>]
-    IB_OUT --> IB_CHOWN[alpine chown\nHOST_OUTPUT_DIR]
+    OLD_IMG & NEW_IMG --> IB["ib_builder.sh\nvolumes: cache, ipk-cache\noverlay_files, input_packages"]
+    IB --> IB_STEPS["Download/cache SDK\nExtract, OpenSSL fix\ncopy .ipk, ROOTFS/KERNEL\nCUSTOM_KEYS, CUSTOM_REPOS\nmake image x2"]
+    IB_STEPS --> IB_OUT["Copy to\nfirmware_output/imagebuilder/<id>/<ts>"]
+    IB_OUT --> IB_CHOWN["alpine chown\nHOST_OUTPUT_DIR"]
     IB_CHOWN --> BR_END([return])
 
-    OLD_SRC & NEW_SRC --> SB[src_builder.sh\nvolumes: workdir, dl-cache, ccache\npatches, overlay_files]
-    SB --> SB_STEPS[chown, git, feeds, patches\nhooks.sh/rollback, .config, overlay\nmake download, then build:\n-j1 V=s (if SRC_CORES=debug)\n-jN (parallel, w/ debug retry on fail)]
-    SB_STEPS --> SB_OUT[Copy to\nfirmware_output/sourcebuilder/<id>/<ts>]
-    SB_OUT --> SB_CHOWN[alpine chown\nHOST_OUTPUT_DIR]
-    SB_CHOWN --> SB_OK{Build\nsuccess?}
-    SB_OK --> |no| SB_FATAL[L_BUILD_FATAL]
+    OLD_SRC & NEW_SRC --> SB["src_builder.sh\nvolumes: workdir, dl-cache, ccache\npatches, overlay_files"]
+    SB --> SB_STEPS["chown, git, feeds, patches\nhooks.sh/rollback, .config, overlay\nmake download, then build:\n-j1 V=s (if SRC_CORES=debug)\n-jN (parallel, w/ debug retry on fail)"]
+    SB_STEPS --> SB_OUT["Copy to\nfirmware_output/sourcebuilder/<id>/<ts>"]
+    SB_OUT --> SB_CHOWN["alpine chown\nHOST_OUTPUT_DIR"]
+    SB_CHOWN --> SB_OK{"Build\nsuccess?"}
+    SB_OK --> |no| SB_FATAL["L_BUILD_FATAL"]
     SB_FATAL --> SB_SHELL_Q2
-    SB_OK --> |yes| IB_TAR{*imagebuilder*\n.tar.zst in output?}
-    IB_TAR --> |yes| SB_Q1[Prompt: Update\nIMAGEBUILDER_URL? y/N]
-    SB_Q1 --> SB_UPDATE{Y?}
-    SB_UPDATE --> |yes| SB_WRITE[Edit profiles/<id>.conf\nadd/comment IMAGEBUILDER_URL]
+    SB_OK --> |yes| IB_TAR{"*imagebuilder*\n.tar.zst in output?"}
+    IB_TAR --> |yes| SB_Q1["Prompt: Update\nIMAGEBUILDER_URL? y/N"]
+    SB_Q1 --> SB_UPDATE{"Y?"}
+    SB_UPDATE --> |yes| SB_WRITE["Edit profiles/<id>.conf\nadd/comment IMAGEBUILDER_URL"]
     SB_UPDATE --> |no| SB_SHELL_Q2
-    SB_WRITE --> SB_SHELL_Q2[Prompt: Stay in\ncontainer? Y/n]
+    SB_WRITE --> SB_SHELL_Q2["Prompt: Stay in\ncontainer? Y/n"]
     IB_TAR --> |no| SB_SHELL_Q2
-    SB_SHELL_Q2 --> SB_STAY{Y?}
-    SB_STAY --> |yes| SB_RUN[docker compose run\n--rm -it /bin/bash]
+    SB_SHELL_Q2 --> SB_STAY{"Y?"}
+    SB_STAY --> |yes| SB_RUN["docker compose run\n--rm -it /bin/bash"]
     SB_STAY --> |no| BR_END
     SB_RUN --> BR_END
 ```

@@ -140,35 +140,35 @@ flowchart TD
 ```mermaid
 flowchart TD
     BR([build_routine\nprofile.conf])
-    BR --> READ_PROFILE[Чтение переменных профиля\nIMAGE или SRC]
-    READ_PROFILE --> LEGACY{Проверка Legacy\nURL 17/18/19 или ветка 19.07/18.06?}
-    LEGACY --> |да img| OLD_IMG[builder-oldwrt\nUbuntu 18.04]
-    LEGACY --> |нет img| NEW_IMG[builder-openwrt\nUbuntu 22.04]
-    LEGACY --> |да src| OLD_SRC[builder-src-oldwrt\nUbuntu 18.04]
-    LEGACY --> |нет src| NEW_SRC[builder-src-openwrt\nUbuntu 24.04]
+    BR --> READ_PROFILE["Чтение переменных профиля\nIMAGE или SRC"]
+    READ_PROFILE --> LEGACY{"Проверка Legacy\nURL 17/18/19 или ветка 19.07/18.06?"}
+    LEGACY --> |да img| OLD_IMG["builder-oldwrt\nUbuntu 18.04"]
+    LEGACY --> |нет img| NEW_IMG["builder-openwrt\nUbuntu 22.04"]
+    LEGACY --> |да src| OLD_SRC["builder-src-oldwrt\nUbuntu 18.04"]
+    LEGACY --> |нет src| NEW_SRC["builder-src-openwrt\nUbuntu 24.04"]
 
-    OLD_IMG & NEW_IMG --> IB[ib_builder.sh\nтома: cache, ipk-cache\noverlay_files, input_packages]
-    IB --> IB_STEPS[Скачать/кэш SDK\nРаспаковка, OpenSSL fix\nкопирование .ipk, ROOTFS/KERNEL\nCUSTOM_KEYS, CUSTOM_REPOS\nmake image x2]
-    IB_STEPS --> IB_OUT[Копирование в\nfirmware_output/imagebuilder/<id>/<ts>]
-    IB_OUT --> IB_CHOWN[alpine chown\nHOST_OUTPUT_DIR]
+    OLD_IMG & NEW_IMG --> IB["ib_builder.sh\nтома: cache, ipk-cache\noverlay_files, input_packages"]
+    IB --> IB_STEPS["Скачать/кэш SDK\nРаспаковка, OpenSSL fix\nкопирование .ipk, ROOTFS/KERNEL\nCUSTOM_KEYS, CUSTOM_REPOS\nmake image x2"]
+    IB_STEPS --> IB_OUT["Копирование в\nfirmware_output/imagebuilder/<id>/<ts>"]
+    IB_OUT --> IB_CHOWN["alpine chown\nHOST_OUTPUT_DIR"]
     IB_CHOWN --> BR_END([return])
 
-    OLD_SRC & NEW_SRC --> SB[src_builder.sh\nтома: workdir, dl-cache, ccache\npatches, overlay_files]
-    SB --> SB_STEPS[chown, git, feeds, patches\nhooks.sh/откат, .config, overlay\nmake download, затем сборка:\n-j1 V=s (если SRC_CORES=debug)\n-jN (параллельно, с откатом на debug при сбое)]
-    SB_STEPS --> SB_OUT[Копирование в\nfirmware_output/sourcebuilder/<id>/<ts>]
-    SB_OUT --> SB_CHOWN[alpine chown\nHOST_OUTPUT_DIR]
-    SB_CHOWN --> SB_OK{Сборка\nуспешна?}
-    SB_OK --> |нет| SB_FATAL[L_BUILD_FATAL]
+    OLD_SRC & NEW_SRC --> SB["src_builder.sh\nтома: workdir, dl-cache, ccache\npatches, overlay_files"]
+    SB --> SB_STEPS["chown, git, feeds, patches\nhooks.sh/откат, .config, overlay\nmake download, затем сборка:\n-j1 V=s (если SRC_CORES=debug)\n-jN (параллельно, с откатом на debug при сбое)"]
+    SB_STEPS --> SB_OUT["Копирование в\nfirmware_output/sourcebuilder/<id>/<ts>"]
+    SB_OUT --> SB_CHOWN["alpine chown\nHOST_OUTPUT_DIR"]
+    SB_CHOWN --> SB_OK{"Сборка\nуспешна?"}
+    SB_OK --> |нет| SB_FATAL["L_BUILD_FATAL"]
     SB_FATAL --> SB_SHELL_Q2
-    SB_OK --> |да| IB_TAR{*imagebuilder*\n.tar.zst в выводе?}
-    IB_TAR --> |да| SB_Q1[Вопрос: Обновить\nIMAGEBUILDER_URL? y/N]
-    SB_Q1 --> SB_UPDATE{Y?}
-    SB_UPDATE --> |да| SB_WRITE[Правка profiles/<id>.conf\nдобавить/закомментировать IMAGEBUILDER_URL]
+    SB_OK --> |да| IB_TAR{"*imagebuilder*\n.tar.zst в выводе?"}
+    IB_TAR --> |да| SB_Q1["Вопрос: Обновить\nIMAGEBUILDER_URL? y/N"]
+    SB_Q1 --> SB_UPDATE{"Y?"}
+    SB_UPDATE --> |да| SB_WRITE["Правка profiles/<id>.conf\nдобавить/закомментировать IMAGEBUILDER_URL"]
     SB_UPDATE --> |нет| SB_SHELL_Q2
-    SB_WRITE --> SB_SHELL_Q2[Вопрос: Остаться в\nконтейнере? Y/n]
+    SB_WRITE --> SB_SHELL_Q2["Вопрос: Остаться в\nконтейнере? Y/n"]
     IB_TAR --> |нет| SB_SHELL_Q2
-    SB_SHELL_Q2 --> SB_STAY{Y?}
-    SB_STAY --> |да| SB_RUN[docker compose run\n--rm -it /bin/bash]
+    SB_SHELL_Q2 --> SB_STAY{"Y?"}
+    SB_STAY --> |да| SB_RUN["docker compose run\n--rm -it /bin/bash"]
     SB_STAY --> |нет| BR_END
     SB_RUN --> BR_END
 ```
