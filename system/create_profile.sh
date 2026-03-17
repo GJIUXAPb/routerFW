@@ -3,7 +3,7 @@
 # file: system/create_profile.sh
 # =========================================================
 #  OpenWrt/ImmortalWrt Universal Profile Creator
-#  Bash Version 2.70 (0 to exit)
+#  Bash Version 2.71 (0 to exit)
 # =========================================================
 
 # --- ЦВЕТА ---
@@ -291,7 +291,7 @@ while true; do
                 ath79|ar71xx|lantiq|realtek) ARCH="mips_24kc" ;;
                 x86) [ "$SUBTARGET" == "64" ] && ARCH="x86_64" || ARCH="i386_pentium4" ;;
                 mediatek) 
-                    if [[ "$SUBTARGET" =~ mt798|mt7622 ]]; then ARCH="aarch64_cortex-a53"
+                    if [[ "$SUBTARGET" =~ mt798|mt7622|filogic ]]; then ARCH="aarch64_cortex-a53"
                     elif [ "$SUBTARGET" == "mt7623" ]; then ARCH="arm_cortex-a7_neon-vfpv4"
                     else ARCH="mipsel_24kc"; fi ;;
                 mvebu) [ "$SUBTARGET" == "cortexa72" ] && ARCH="aarch64_cortex-a72" || ARCH="arm_cortex-a9_vfpv3-d16" ;;
@@ -393,4 +393,4 @@ EOF
             ;;
     esac
 done
-# checksum:MD5=934ecc9c344232002a5d51fa4d4364cf
+# checksum:MD5=ce1590c881c51e96e8e922ba8d20141d
