@@ -12,10 +12,10 @@ GOOD_FILE = "good_snis.txt"
 BAD_FILE = "bad_snis.txt"
 UNSTABLE_FILE = "unstable_snis.txt"
 
-CHECKS_PER_DOMAIN = 5      # Сколько раз проверяем
+CHECKS_PER_DOMAIN = 10      # Сколько раз проверяем
 DELAY_BETWEEN_CHECKS = 1   # Пауза (сек) между запросами к одному домену
 CURL_TIMEOUT = 5           # Таймаут (сек)
-MAX_THREADS = 15           # КОЛИЧЕСТВО ПОТОКОВ (ОДНОВРЕМЕННЫХ ПРОВЕРОК)
+MAX_THREADS = 50           # КОЛИЧЕСТВО ПОТОКОВ (ОДНОВРЕМЕННЫХ ПРОВЕРОК)
 # =============================================
 
 print_lock = threading.Lock()
