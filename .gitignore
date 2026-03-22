@@ -12,6 +12,7 @@
 /bck/
 /reverse/
 debug.md
+profiles
 
 # Tester (local runs, log overwritten each run)
 tester_log_*.md
