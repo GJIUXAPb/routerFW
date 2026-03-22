@@ -1475,7 +1475,7 @@ while true; do
     echo ""
 
     read -p "${C_LBL}${L_CHOICE}${C_VAL} ⚡ ${C_RST}" choice
-    choice="${choice^^}"
+    choice="$(echo "$choice" | tr '[:lower:]' '[:upper:]')"
 
     case "$choice" in
         0) 
