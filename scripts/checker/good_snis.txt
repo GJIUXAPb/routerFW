@@ -1,11 +1,56 @@
-ya.ru
+
+# ====== HTTP 200 ======
+a.mts.ru
+rutube.ru
+max.ru
+ok.ru
+miro.com
+1c.ru
+copostly.com
+corp.mishsoft.ru
+ar2023.magnit.com
+faq9.ru
+github.com
+images.apple.com
+mslvrkvsk.online
+max.ru
+spgraph.io
+adminmo.ficarricos.cc
+rolabs.net
+livingpatterngrid.com
+www.cloudflare.com
+
+# ====== HTTP 301 ======
 cloudflare.com
-avito.ru
-kinopoisk.ru
+cloudflare.com
+gannett.com
+reddit.com
+wikipedia.org
+userapi.com
+
+# ====== HTTP 302 ======
 vk.com
 vkvideo.ru
-max.ru
-rutube.ru
-ok.ru
+kinsta.cloud
+ign.com
+vk.com
+yandex.tr
+
+# ====== HTTP 307 ======
 ozon.ru
-miro.com
+ozon.ru
+
+# ====== HTTP 403 ======
+ya.ru
+kinopoisk.ru
+lumen.yandex.ru
+travel.yandex.ru
+
+# ====== HTTP 404 ======
+yahoo.com
+
+# ====== HTTP 429 ======
+www.yahoo.com
+
+# ====== HTTP 502 ======
+ads.x5.ru

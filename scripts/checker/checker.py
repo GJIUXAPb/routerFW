@@ -13,9 +13,9 @@ BAD_FILE = "bad_snis.txt"
 UNSTABLE_FILE = "unstable_snis.txt"
 
 CHECKS_PER_DOMAIN = 10      # Сколько раз проверяем
-DELAY_BETWEEN_CHECKS = 1   # Пауза (сек) между запросами к одному домену
-CURL_TIMEOUT = 5           # Таймаут (сек)
-MAX_THREADS = 15           # КОЛИЧЕСТВО ПОТОКОВ (ОДНОВРЕМЕННЫХ ПРОВЕРОК)
+DELAY_BETWEEN_CHECKS = 0.2  # Пауза (сек) между стартами параллельных проверок (200мс)
+CURL_TIMEOUT = 5            # Таймаут (сек)
+MAX_THREADS = 15            # Количество одновременных доменов
 # =============================================
 
 print_lock = threading.Lock()
@@ -27,62 +27,68 @@ def check_domain(domain):
     if not domain:
         return None
     
-    # Формируем URL
     url = f"https://{domain}" if not domain.startswith("http") else domain
     clean_domain = domain.split("//")[-1].split("/")[0] if "://" in domain else domain
     
-    success_count = 0
-    codes =[]
-    
-    # Делаем N проверок для одного домена
-    for i in range(CHECKS_PER_DOMAIN):
+    results_list =["000"] * CHECKS_PER_DOMAIN
+
+    # Функция для одного микро-запроса (будет работать в своем потоке)
+    def _single_curl(delay, idx):
+        time.sleep(delay) # Ждем свою очередь (0мс, 200мс, 400мс...)
         try:
             cmd =[
                 "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", 
                 "-m", str(CURL_TIMEOUT), "--tlsv1.3", url
             ]
-            # Запускаем curl под капотом
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            code = result.stdout.strip()
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            code = res.stdout.strip()
             if not code or not code.isdigit():
                 code = "000"
         except Exception:
             code = "000"
+        results_list[idx] = code
+
+    # Запускаем CHECKS_PER_DOMAIN потоков для ОДНОГО домена
+    inner_threads =[]
+    for i in range(CHECKS_PER_DOMAIN):
+        # i * DELAY_BETWEEN_CHECKS даст нам лесенку: 0.0, 0.2, 0.4, 0.6...
+        t = threading.Thread(target=_single_curl, args=(i * DELAY_BETWEEN_CHECKS, i))
+        t.start()
+        inner_threads.append(t)
+
+    # Ждем завершения всех микро-запросов
+    for t in inner_threads:
+        t.join()
             
-        codes.append(code)
-        if code != "000":
-            success_count += 1
-            
-        if i < CHECKS_PER_DOMAIN - 1:
-            time.sleep(DELAY_BETWEEN_CHECKS)
-            
-    # Анализируем результат
-    codes_str = " ".join(codes)
+    # Анализируем результаты
+    success_count = sum(1 for c in results_list if c != "000")
+    codes_str = " ".join(results_list)
+    
+    # Определяем доминирующий HTTP код (для сортировки в будущем)
+    valid_codes =[c for c in results_list if c != "000"]
+    major_code = max(set(valid_codes), key=valid_codes.count) if valid_codes else "000"
+
     if success_count == CHECKS_PER_DOMAIN:
-        status = "\033[32m[ОТЛИЧНО]\033[0m"
-        file_dest = GOOD_FILE
+        status = "GOOD"
+        status_ui = "\033[32m[ОТЛИЧНО]\033[0m"
     elif success_count == 0:
-        status = "\033[31m[В МУСОР]\033[0m"
-        file_dest = BAD_FILE
+        status = "BAD"
+        status_ui = "\033[31m[В МУСОР]\033[0m"
     else:
-        status = "\033[33m[ПЛАВАЕТ]\033[0m"
-        file_dest = UNSTABLE_FILE
+        status = "UNSTABLE"
+        status_ui = "\033[33m[ПЛАВАЕТ]\033[0m"
         
-    # Выравниваем текст для красоты
-    result_text = f"{status} {clean_domain:<25} ({success_count}/{CHECKS_PER_DOMAIN}) | Коды: {codes_str}"
-    return clean_domain, result_text, file_dest
+    result_text = f"{status_ui} {clean_domain:<25} ({success_count}/{CHECKS_PER_DOMAIN}) | Коды: {codes_str}"
+    
+    return clean_domain, status, major_code, result_text
 
 def update_ui(result_text):
     global done_count
     done_count += 1
-    # Блокировка вывода, чтобы потоки не перемешали текст в консоли
     with print_lock:
-        # Стираем текущую строку (с прогресс-баром)
         sys.stdout.write('\r\033[K')
-        # Печатаем результат завершенного домена
         sys.stdout.write(result_text + '\n')
         
-        # Отрисовываем новый прогресс-бар в самом низу
         percent = done_count / total_count if total_count > 0 else 0
         bar_len = 30
         filled = int(bar_len * percent)
@@ -98,48 +104,79 @@ def main():
         return
         
     with open(INPUT_FILE, 'r', encoding='utf-8') as f:
-        domains = [line.strip() for line in f if line.strip()]
+        domains =[line.strip() for line in f if line.strip()]
         
     total_count = len(domains)
     if total_count == 0:
         print("❌ Файл с доменами пуст!")
         return
 
-    # Очищаем файлы перед стартом
-    for f in (GOOD_FILE, BAD_FILE, UNSTABLE_FILE):
-        open(f, 'w').close()
-
-    print(f"🔍 Запуск проверки в {MAX_THREADS} потоков...")
-    print("=" * 60)
+    print(f"🔍 Запуск проверки в {MAX_THREADS} потоков (внутри каждого еще по {CHECKS_PER_DOMAIN} микро-потоков)...")
+    print("=" * 70)
     
-    # Скрываем курсор для красоты и рисуем начальный бар
     sys.stdout.write("\033[?25l")
     sys.stdout.write(f'\r\033[1;36m[ПРОГРЕСС]\033[0m[{"░" * 30}] 0/{total_count} (0%)')
     sys.stdout.flush()
 
+    # Списки для накопления результатов
+    good_list = []
+    bad_list = []
+    unstable_list =[]
+
     try:
-        # Запускаем ThreadPool (Пул потоков)
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
             future_to_domain = {executor.submit(check_domain, dom): dom for dom in domains}
             
             for future in concurrent.futures.as_completed(future_to_domain):
                 res = future.result()
                 if res:
-                    domain, result_text, file_dest = res
-                    # Дописываем домен в нужный файл
-                    with open(file_dest, 'a', encoding='utf-8') as f:
-                        f.write(domain + '\n')
-                    # Обновляем прогресс-бар и лог
+                    domain, status, major_code, result_text = res
+                    
+                    # Распределяем по корзинам в оперативной памяти
+                    if status == "GOOD":
+                        good_list.append((domain, major_code))
+                    elif status == "BAD":
+                        bad_list.append(domain)
+                    else:
+                        unstable_list.append(domain)
+                        
                     update_ui(result_text)
     finally:
-        # Возвращаем курсор по завершении (или при нажатии Ctrl+C)
         with print_lock:
             sys.stdout.write('\r\033[K')
-            print("=" * 60)
-            print("✅ Многопоточная проверка завершена!")
-            print(f"🟢 Идеальные: {GOOD_FILE}")
+            print("=" * 70)
+            
+            # === ФИНАЛЬНАЯ ЗАПИСЬ И СОРТИРОВКА ===
+            
+            # Сортируем успешные домены по HTTP коду (200, 301, 302, 403...)
+            good_list.sort(key=lambda x: x[1])
+            
+            # Записываем Идеальные домены
+            with open(GOOD_FILE, 'w', encoding='utf-8') as f:
+                current_code = ""
+                for dom, code in good_list:
+                    # Добавляем красивый комментарий-разделитель в файл
+                    if code != current_code:
+                        f.write(f"\n# ====== HTTP {code} ======\n")
+                        current_code = code
+                    f.write(f"{dom}\n")
+                    
+            # Записываем Плавающие
+            with open(UNSTABLE_FILE, 'w', encoding='utf-8') as f:
+                for dom in unstable_list:
+                    f.write(dom + '\n')
+                    
+            # Записываем Мертвые
+            with open(BAD_FILE, 'w', encoding='utf-8') as f:
+                for dom in bad_list:
+                    f.write(dom + '\n')
+
+            print("✅ Проверка и сортировка завершены!")
+            print(f"🟢 Идеальные: {GOOD_FILE} (Отсортированы по HTTP-коду)")
             print(f"🟡 Плавающие: {UNSTABLE_FILE}")
             print(f"🔴 Мертвые:   {BAD_FILE}")
+            
+            # Включаем отображение курсора обратно
             sys.stdout.write("\033[?25h")
             sys.stdout.flush()
 
