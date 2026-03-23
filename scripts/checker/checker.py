@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ver 0.2
 import subprocess
 import concurrent.futures
 import time
@@ -12,9 +13,9 @@ GOOD_FILE = "good_snis.txt"
 BAD_FILE = "bad_snis.txt"
 UNSTABLE_FILE = "unstable_snis.txt"
 
-CHECKS_PER_DOMAIN = 5      # Сколько раз проверяем
-DELAY_BETWEEN_CHECKS = 0.5  # Пауза (сек) между стартами параллельных проверок (200мс)
-CURL_TIMEOUT = 5            # Таймаут (сек)
+CHECKS_PER_DOMAIN = 3      # Сколько раз проверяем
+DELAY_BETWEEN_CHECKS = 0.5  # Пауза (сек) между стартами параллельных проверок
+CURL_TIMEOUT = 3            # Таймаут (сек)
 MAX_THREADS = 15            # Количество одновременных доменов
 # =============================================
 
