@@ -12,7 +12,7 @@ RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu
 # Обратите внимание: python3-distutils удален, так как в Python 3.12 он deprecated.
 # Добавлен python3-venv, так как новые системы часто требуют venv.
 RUN apt-get update && apt-get install -y \    
-    mc build-essential ccache clang flex bison g++ gawk gcc-multilib g++-multilib \
+    mc build-essential ccache clang flex bison g++ gawk \
     gettext git patch swig time rsync unzip file wget curl dos2unix \
     libncurses-dev libssl-dev zlib1g-dev libelf-dev libzstd-dev \    
     python3-dev python3-setuptools python3-pyelftools python3-venv \    
