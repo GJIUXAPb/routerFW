@@ -14,7 +14,15 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
       - name: Bash syntax
-        run: for f in _Builder.sh tester.sh system/*.sh; do bash -n "$f"; done
+        run: for f in _Builder.sh _packer.sh _unpacker.sh tester.sh system/*.sh; do bash -n "$f"; done
+        shell: bash
+
+      - name: Verify executable permissions
+        run: |
+          test -x _Builder.sh
+          test -x _packer.sh
+          test -x _unpacker.sh
+          test -x tester.sh
         shell: bash
 
       - name: ShellCheck
@@ -50,7 +58,7 @@ jobs:
 
       - name: Forbid global docker prune
         run: |
-          if grep -R -E 'docker(\.exe)? (network|volume|system) prune|\$C_EXE .*system prune|%CONTAINER_EXE% system prune' _Builder.sh _Builder.bat tester.sh tester.bat system/*.sh system/*.ps1; then
+          if grep -R -E '(docker(\.exe)?|podman) (network|volume|system) prune|run_container .* (network|volume|system) prune|\$C_EXE .*system prune|%CONTAINER_EXE% system prune' _Builder.sh _Builder.bat tester.sh tester.bat system/*.sh system/*.ps1; then
             echo "Forbidden global docker prune command found"
             exit 1
           fi
@@ -62,6 +70,13 @@ jobs:
         env:
           ROUTERFW_TEST_MODE: "1"
 
+      - name: Upload Linux tester log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tester-log-linux
+          path: tester_log_lin.md
+
   windows-tests:
     runs-on: windows-latest
     steps:
@@ -72,3 +87,40 @@ jobs:
         shell: cmd
         env:
           ROUTERFW_TEST_MODE: "1"
+
+      - name: Upload Windows tester log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tester-log-windows
+          path: tester_log_win.md
+
+  podman-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install podman
+        run: sudo apt-get update && sudo apt-get install -y podman podman-compose
+        shell: bash
+
+      - name: Podman compose config
+        run: |
+          if podman compose version >/dev/null 2>&1; then
+            COMPOSE_CMD=(podman compose)
+          else
+            COMPOSE_CMD=(podman-compose)
+          fi
+          podman info
+          "${COMPOSE_CMD[@]}" -f system/docker-compose.yaml -f system/podman-compose.yaml config >/dev/null
+        shell: bash
+
+      - name: Podman bind mount ownership
+        run: |
+          rm -rf podman-smoke-output
+          mkdir -p podman-smoke-output
+          podman run --rm --userns keep-id -v "$PWD/podman-smoke-output:/out:z" docker.io/library/alpine:3.20 sh -lc 'echo ok >/out/podman-smoke.txt'
+          test -f podman-smoke-output/podman-smoke.txt
+          test -w podman-smoke-output/podman-smoke.txt
+          test "$(stat -c '%u' podman-smoke-output/podman-smoke.txt)" = "$(id -u)"
+        shell: bash

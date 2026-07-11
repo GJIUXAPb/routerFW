@@ -188,6 +188,16 @@ set "ROUTERFW_RUNTIME=%RUNTIME_FORCE%"
 call :DETECT_RUNTIME
 if errorlevel 1 exit /b 1
 set "ROUTERFW_CONTAINER_RUNTIME=%CONTAINER_EXE%"
+if defined ROUTERFW_TEST_COMPOSE_BASE goto TEST_COMPOSE_HOOK
+goto AFTER_TEST_COMPOSE_HOOK
+
+:TEST_COMPOSE_HOOK
+set "COMPOSE_BASE_FILE=%ROUTERFW_TEST_COMPOSE_BASE%"
+call :RUN_COMPOSE %ROUTERFW_TEST_COMPOSE_ARGS%
+set "TEST_COMPOSE_RC=!errorlevel!"
+exit /b !TEST_COMPOSE_RC!
+
+:AFTER_TEST_COMPOSE_HOOK
 
 if defined ROUTERFW_TEST_MODE goto TEST_MODE_INIT
 
@@ -217,20 +227,20 @@ if "%COMPOSE_IS_PLUGIN%"=="1" (
 
 :AFTER_ENGINE_INIT
 
-:: Вывод корня проекта
+rem project root
 echo   %C_GRY%-%C_RST% !L_INIT_ROOT!: %C_VAL%%CD%%C_RST%
 
 echo !L_INIT_NET!
 echo.
-:: === 0. РАСПАКОВКА ===
+rem unpack
 if not defined ROUTERFW_TEST_MODE if exist _unpacker.bat (
     echo %L_INIT_UNPACK%
     call _unpacker.bat
 )
-:: Запоминаем корень проекта
+rem remember project root
 set "PROJECT_DIR=%CD%"
 for %%I in (.) do set "DIR_NAME=%%~nxI"
-:: === 1. ИНИЦИАЛИЗАЦИЯ ПАПОК ===
+rem init folders
 call :CHECK_DIR "profiles"
 call :CHECK_DIR "custom_files"
 call :CHECK_DIR "custom_patches"
@@ -240,7 +250,7 @@ call :CHECK_DIR "firmware_output\sourcebuilder"
 call :CHECK_DIR "custom_packages"
 call :CHECK_DIR "src_packages"
 
-:: === АВТО-ПАТЧИНГ АРХИТЕКТУРЫ (ADVANCED MAPPING v3.0) ===
+rem architecture patch scan
 echo !L_INIT_SCAN!
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$profiles = Get-ChildItem 'profiles/*.conf';" ^
@@ -608,9 +618,11 @@ echo   !C_GRY!💡 Tip: Type !C_KEY!mc!C_GRY! inside to launch Midnight Commande
 
 :: Разделяем логику входа. Для SOURCE полностью имитируем окружение из src_builder.sh
 if "!BUILD_MODE!"=="SOURCE" (
-    call :RUN_COMPOSE !COMPOSE_ARG! -p !PROJ_NAME! run --rm -it !SERVICE_NAME! /bin/bash -c "if [ -d /home/build/openwrt/.git ] && [ x$(stat -c %%U /ccache 2>/dev/null) = xbuild ]; then echo '[INIT] Permissions OK'; else echo '[INIT] Fixing permissions...'; chown -R build:build /home/build/openwrt /ccache 2>/dev/null || true; fi && sudo -E -u build bash -c 'export HOME=/home/build; git config --global --add safe.directory \"*\"; cd /home/build/openwrt 2>/dev/null || cd /home/build; exec bash'"
+    set "COMPOSE_BASE_FILE=!COMPOSE_ARG!"
+    call :RUN_COMPOSE -p !PROJ_NAME! run --rm -it !SERVICE_NAME! /bin/bash -c "if [ -d /home/build/openwrt/.git ] && [ x$(stat -c %%U /ccache 2>/dev/null) = xbuild ]; then echo '[INIT] Permissions OK'; else echo '[INIT] Fixing permissions...'; chown -R build:build /home/build/openwrt /ccache 2>/dev/null || true; fi && sudo -E -u build bash -c 'export HOME=/home/build; git config --global --add safe.directory \"*\"; cd /home/build/openwrt 2>/dev/null || cd /home/build; exec bash'"
 ) else (
-    call :RUN_COMPOSE !COMPOSE_ARG! -p !PROJ_NAME! run --rm -it !SERVICE_NAME! /bin/bash
+    set "COMPOSE_BASE_FILE=!COMPOSE_ARG!"
+    call :RUN_COMPOSE -p !PROJ_NAME! run --rm -it !SERVICE_NAME! /bin/bash
 )
 
 :EDIT_DONE
@@ -1004,7 +1016,8 @@ if "%BUILD_MODE%"=="IMAGE" (
 %CONTAINER_EXE% ps -q --filter "name=%PROJ_NAME%" | findstr "^" >nul
 if not errorlevel 1 (
     echo   !L_SRV_DOWN!
-    call :RUN_COMPOSE !YAML_FILE! -p !PROJ_NAME! down
+    set "COMPOSE_BASE_FILE=!YAML_FILE!"
+    call :RUN_COMPOSE -p !PROJ_NAME! down
 ) else (
     echo   !L_SRV_ALREADY_DOWN!
 )
@@ -1032,7 +1045,8 @@ set "HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/%TARGET_PROFILE_ID%"
 set "PROJ_NAME=srcbuild_%TARGET_PROFILE_ID%"
 
 :: Запускаем make clean с полным выводом в консоль
-call :RUN_COMPOSE system/docker-compose-src.yaml -p %PROJ_NAME% run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && if [ -f Makefile ]; then echo '[CMD] make clean'; make clean; echo '[DONE] Clean Completed'; else echo '[WARN] Makefile not found'; fi"
+set "COMPOSE_BASE_FILE=system/docker-compose-src.yaml"
+call :RUN_COMPOSE -p %PROJ_NAME% run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && if [ -f Makefile ]; then echo '[CMD] make clean'; make clean; echo '[DONE] Clean Completed'; else echo '[WARN] Makefile not found'; fi"
 echo.
 pause
 if defined CLI_CLEAN_YES exit /b 0
@@ -1076,7 +1090,8 @@ set "HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/%TARGET_PROFILE_ID%"
 set "PROJ_NAME=srcbuild_%TARGET_PROFILE_ID%"
 
 :: Запускаем удаление tmp внутри контейнера
-call :RUN_COMPOSE system/docker-compose-src.yaml -p %PROJ_NAME% run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && echo '[CMD] rm -rf tmp/' && rm -rf tmp/ && echo '[DONE] Index/Tmp cleaned'"
+set "COMPOSE_BASE_FILE=system/docker-compose-src.yaml"
+call :RUN_COMPOSE -p %PROJ_NAME% run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && echo '[CMD] rm -rf tmp/' && rm -rf tmp/ && echo '[DONE] Index/Tmp cleaned'"
 echo.
 pause
 if defined CLI_CLEAN_YES exit /b 0
@@ -1092,7 +1107,8 @@ if not "%TARGET_PROFILE_ID%"=="ALL" (
 
     echo   !L_SRV_DOWN! (Full)...
     rem Показываем процесс удаления сетей и томов
-    call :RUN_COMPOSE system/docker-compose-src.yaml -p !PROJ_NAME! down -v
+    set "COMPOSE_BASE_FILE=system/docker-compose-src.yaml"
+    call :RUN_COMPOSE -p !PROJ_NAME! down -v
 ) else (
     call :HELPER_RELEASE_LOCKS "ALL"
 )
@@ -1133,7 +1149,8 @@ if not "%TARGET_PROFILE_ID%"=="ALL" (
     set "HOST_OUTPUT_DIR=./firmware_output"
 
     echo   !L_SRV_DOWN! (Full)...
-    call :RUN_COMPOSE system/docker-compose.yaml -p !PROJ_NAME! down -v
+    set "COMPOSE_BASE_FILE=system/docker-compose.yaml"
+    call :RUN_COMPOSE -p !PROJ_NAME! down -v
 ) else (
     call :HELPER_RELEASE_LOCKS "ALL"
 )
@@ -1491,21 +1508,71 @@ set "COMPOSE_EXE=podman-compose"
 exit /b 0
 
 :RUN_COMPOSE
-setlocal
-set "base_file=%~1"
-shift
-if "%COMPOSE_IS_PLUGIN%"=="1" if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose.yaml" %CONTAINER_EXE% compose -f "%base_file%" -f "system/podman-compose.yaml" %*
-if "%COMPOSE_IS_PLUGIN%"=="1" if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose.yaml" endlocal & exit /b %errorlevel%
-if "%COMPOSE_IS_PLUGIN%"=="1" if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose-src.yaml" %CONTAINER_EXE% compose -f "%base_file%" -f "system/podman-compose-src.yaml" %*
-if "%COMPOSE_IS_PLUGIN%"=="1" if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose-src.yaml" endlocal & exit /b %errorlevel%
-if "%COMPOSE_IS_PLUGIN%"=="1" %CONTAINER_EXE% compose -f "%base_file%" %*
-if "%COMPOSE_IS_PLUGIN%"=="1" endlocal & exit /b %errorlevel%
-if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose.yaml" %COMPOSE_EXE% -f "%base_file%" -f "system/podman-compose.yaml" %*
-if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose.yaml" endlocal & exit /b %errorlevel%
-if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose-src.yaml" %COMPOSE_EXE% -f "%base_file%" -f "system/podman-compose-src.yaml" %*
-if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose-src.yaml" endlocal & exit /b %errorlevel%
+setlocal EnableDelayedExpansion
+set "base_file=%COMPOSE_BASE_FILE%"
+if not defined base_file (
+    endlocal & exit /b 1
+)
+set "override_file="
+if /i "%base_file%"=="system/docker-compose.yaml" set "override_file=system/podman-compose.yaml"
+if /i "%base_file%"=="system/docker-compose-src.yaml" set "override_file=system/podman-compose-src.yaml"
+if defined ROUTERFW_TEST_COMPOSE_LOG goto RUN_COMPOSE_CAPTURE
+if "%COMPOSE_IS_PLUGIN%"=="1" goto RUN_COMPOSE_PLUGIN_ROUTE
+goto RUN_COMPOSE_STANDALONE_ROUTE
+
+:RUN_COMPOSE_CAPTURE
+if "%COMPOSE_IS_PLUGIN%"=="1" goto RUN_COMPOSE_CAPTURE_PLUGIN
+goto RUN_COMPOSE_CAPTURE_STANDALONE
+
+:RUN_COMPOSE_CAPTURE_PLUGIN
+if /i not "%CONTAINER_EXE%"=="podman" goto RUN_COMPOSE_CAPTURE_PLUGIN_DEFAULT
+if not defined override_file goto RUN_COMPOSE_CAPTURE_PLUGIN_DEFAULT
+>>"%ROUTERFW_TEST_COMPOSE_LOG%" echo %CONTAINER_EXE% compose -f %base_file% -f %override_file% %*
+endlocal & exit /b 0
+
+:RUN_COMPOSE_CAPTURE_PLUGIN_DEFAULT
+>>"%ROUTERFW_TEST_COMPOSE_LOG%" echo %CONTAINER_EXE% compose -f %base_file% %*
+endlocal & exit /b 0
+
+:RUN_COMPOSE_CAPTURE_STANDALONE
+if /i not "%CONTAINER_EXE%"=="podman" goto RUN_COMPOSE_CAPTURE_STANDALONE_DEFAULT
+if not defined override_file goto RUN_COMPOSE_CAPTURE_STANDALONE_DEFAULT
+>>"%ROUTERFW_TEST_COMPOSE_LOG%" echo %COMPOSE_EXE% -f %base_file% -f %override_file% %*
+endlocal & exit /b 0
+
+:RUN_COMPOSE_CAPTURE_STANDALONE_DEFAULT
+>>"%ROUTERFW_TEST_COMPOSE_LOG%" echo %COMPOSE_EXE% -f %base_file% %*
+endlocal & exit /b 0
+
+:RUN_COMPOSE_PLUGIN_ROUTE
+if /i not "%CONTAINER_EXE%"=="podman" goto RUN_COMPOSE_PLUGIN_DEFAULT
+if not defined override_file goto RUN_COMPOSE_PLUGIN_DEFAULT
+goto RUN_COMPOSE_PLUGIN_PODMAN
+
+:RUN_COMPOSE_PLUGIN_PODMAN
+%CONTAINER_EXE% compose -f "%base_file%" -f "%override_file%" %*
+set "rc=!errorlevel!"
+endlocal & exit /b %rc%
+
+:RUN_COMPOSE_PLUGIN_DEFAULT
+%CONTAINER_EXE% compose -f "%base_file%" %*
+set "rc=!errorlevel!"
+endlocal & exit /b %rc%
+
+:RUN_COMPOSE_STANDALONE_ROUTE
+if /i not "%CONTAINER_EXE%"=="podman" goto RUN_COMPOSE_STANDALONE_DEFAULT
+if not defined override_file goto RUN_COMPOSE_STANDALONE_DEFAULT
+goto RUN_COMPOSE_STANDALONE_PODMAN
+
+:RUN_COMPOSE_STANDALONE_PODMAN
+%COMPOSE_EXE% -f "%base_file%" -f "%override_file%" %*
+set "rc=!errorlevel!"
+endlocal & exit /b %rc%
+
+:RUN_COMPOSE_STANDALONE_DEFAULT
 %COMPOSE_EXE% -f "%base_file%" %*
-endlocal & exit /b %errorlevel%
+set "rc=!errorlevel!"
+endlocal & exit /b %rc%
 
 :SET_COMPOSE_FILE_ARGS
 set "COMPOSE_FILE_ARGS=-f %~1"
@@ -1905,7 +1972,7 @@ echo fi >> "%RUNNER_SCRIPT%"
 echo %L_K_LAUNCH%
 echo.
 :: FIX: Smart Chown (оптимизация запуска) + Security Opt
-set "HOST_PKGS_DIR=./src_packages/%PROFILE_ID%" && call :RUN_COMPOSE system/docker-compose-src.yaml -p %PROJ_NAME% run --build --rm -it %SERVICE_NAME% /bin/bash -c "if [ -d /home/build/openwrt/.git ] && [ x$(stat -c %%U /ccache 2>/dev/null) = xbuild ]; then echo '[INIT] Permissions OK'; else echo '[INIT] Fixing permissions (Slow)...'; chown -R build:build /home/build/openwrt /ccache; fi && chown build:build /output && tr -d '\r' < /output/_menuconfig_runner.sh > /tmp/r.sh && chmod +x /tmp/r.sh && sudo -E -u build bash /tmp/r.sh"
+set "HOST_PKGS_DIR=./src_packages/%PROFILE_ID%" && set "COMPOSE_BASE_FILE=system/docker-compose-src.yaml" && call :RUN_COMPOSE -p %PROJ_NAME% run --build --rm -it %SERVICE_NAME% /bin/bash -c "if [ -d /home/build/openwrt/.git ] && [ x$(stat -c %%U /ccache 2>/dev/null) = xbuild ]; then echo '[INIT] Permissions OK'; else echo '[INIT] Fixing permissions (Slow)...'; chown -R build:build /home/build/openwrt /ccache; fi && chown build:build /output && tr -d '\r' < /output/_menuconfig_runner.sh > /tmp/r.sh && chmod +x /tmp/r.sh && sudo -E -u build bash /tmp/r.sh"
 :: --- БЛОК ПОСТ-ОБРАБОТКИ КОНФИГУРАЦИИ ---
 if exist "%WIN_OUT_PATH%\manual_config" (
     echo.
@@ -2050,7 +2117,7 @@ if "%COMPOSE_IS_PLUGIN%"=="1" (
 )
 
 :: Запуск в отдельном окне (с поддержкой интерактивного входа для SOURCE режима и обновления профиля)
-START "%WINDOW_TITLE%" cmd /v:on /c ^"set "SELECTED_CONF=%CONF_FILE%" ^&^& set "HOST_FILES_DIR=./custom_files/%PROFILE_ID%" ^&^& set "HOST_PKGS_DIR=%HOST_PKGS_DIR%" ^&^& set "HOST_PATCHES_DIR=%HOST_PATCHES_DIR%" ^&^& set "HOST_OUTPUT_DIR=%REL_OUT_PATH%" ^&^& (!COMPOSE_START_CMD! !COMPOSE_FILE_ARGS! -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME% ^|^| echo !L_BUILD_FATAL!) ^&^& echo. ^&^& echo !L_FINISHED! ^&^& (if "%BUILD_MODE%"=="SOURCE" ( powershell -NoProfile -ExecutionPolicy Bypass -Command "$out='%REL_OUT_PATH%'; $conf='!SELECTED_CONF!'; Write-Host '--- DEBUG INFO ---' -ForegroundColor Yellow; if([string]::IsNullOrWhiteSpace($out)){ $out='./firmware_output/sourcebuilder/%PROFILE_ID%' }; Write-Host ('[DEBUG] Output Dir: ' + $out); $cleanOut = $out.Replace('./',''); if(Test-Path $cleanOut){ $files = Get-ChildItem -Path $cleanOut -Filter '*imagebuilder*.tar.zst' -Recurse; Write-Host ('[DEBUG] Files found: ' + $files.Count); $best = $files | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if($best){ $u = (Resolve-Path -Path $best.FullName -Relative).Replace('.\','').Replace('\','/'); Write-Host ('[DEBUG] Found IB: ' + $u) -ForegroundColor Yellow; Write-Host ''; Write-Host '!L_IB_UPDATE_ASK!' -ForegroundColor Cyan; $r = Read-Host '!L_IB_UPDATE_PROMPT!'; if($r -eq 'y'){ $pf='profiles/' + $conf; if(Test-Path $pf){ $lines = Get-Content $pf -Encoding UTF8; $newLine = 'IMAGEBUILDER_URL=' + [char]34 + $u + [char]34; $activeIndex = $null; $commentIndex = $null; for ($i = 0; $i -lt $lines.Count; $i++) { $trimmed = $lines[$i].Trim(); if ($trimmed -like 'IMAGEBUILDER_URL=*') { $activeIndex = $i } elseif ($trimmed -like '#*IMAGEBUILDER_URL=*') { $commentIndex = $i } }; if ($activeIndex -ne $null) { $lines[$activeIndex] = '#' + $lines[$activeIndex]; $lines = $lines[0..$activeIndex] + $newLine + $lines[($activeIndex+1)..($lines.Count-1)] } elseif ($commentIndex -ne $null) { $lines += $newLine } else { $lines += $newLine }; [System.IO.File]::WriteAllLines($pf, $lines, [System.Text.UTF8Encoding]::new($false)); Write-Host '!L_IB_UPDATE_OK!' -ForegroundColor Green } } } else { Write-Host '[DEBUG] Archive *imagebuilder*.tar.zst not found in folder.' -ForegroundColor Red } } else { Write-Host ('[DEBUG] Directory not found: ' + $cleanOut) -ForegroundColor Red }; Write-Host '------------------' -ForegroundColor Yellow " ) ) ^&^& (if "%BUILD_MODE%"=="SOURCE" ( powershell -NoProfile -Command "$Host.UI.RawUI.FlushInputBuffer()" ) ) ^&^& (if "%BUILD_MODE%"=="SOURCE" (set /p "stay=!L_K_STAY! " ^& if /i "^!stay^!"=="y" (echo. ^& echo !L_K_SHELL_H1! ^& echo !L_K_SHELL_H2! ^& echo !L_K_SHELL_H3! ^& !COMPOSE_START_CMD! !COMPOSE_FILE_ARGS! -p %PROJ_NAME% run --rm -it %SERVICE_NAME% /bin/bash))) ^&^& pause ^"
+START "%WINDOW_TITLE%" cmd /v:on /c ^"set "SELECTED_CONF=%CONF_FILE%" ^&^& set "HOST_FILES_DIR=./custom_files/%PROFILE_ID%" ^&^& set "HOST_PKGS_DIR=%HOST_PKGS_DIR%" ^&^& set "HOST_PATCHES_DIR=%HOST_PATCHES_DIR%" ^&^& set "HOST_OUTPUT_DIR=%REL_OUT_PATH%" ^&^& set "BUILD_STATUS=0" ^& !COMPOSE_START_CMD! !COMPOSE_FILE_ARGS! -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME% ^& set "BUILD_STATUS=!errorlevel!" ^& if not "^!BUILD_STATUS^!"=="0" (echo !L_BUILD_FATAL! !L_EXIT_CODE_LABEL! ^!BUILD_STATUS^!) else (echo. ^& echo !L_FINISHED! ^& (if "%BUILD_MODE%"=="SOURCE" ( powershell -NoProfile -ExecutionPolicy Bypass -Command "$out='%REL_OUT_PATH%'; $conf='!SELECTED_CONF!'; Write-Host '--- DEBUG INFO ---' -ForegroundColor Yellow; if([string]::IsNullOrWhiteSpace($out)){ $out='./firmware_output/sourcebuilder/%PROFILE_ID%' }; Write-Host ('[DEBUG] Output Dir: ' + $out); $cleanOut = $out.Replace('./',''); if(Test-Path $cleanOut){ $files = Get-ChildItem -Path $cleanOut -Filter '*imagebuilder*.tar.zst' -Recurse; Write-Host ('[DEBUG] Files found: ' + $files.Count); $best = $files | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if($best){ $u = (Resolve-Path -Path $best.FullName -Relative).Replace('.\','').Replace('\','/'); Write-Host ('[DEBUG] Found IB: ' + $u) -ForegroundColor Yellow; Write-Host ''; Write-Host '!L_IB_UPDATE_ASK!' -ForegroundColor Cyan; $r = Read-Host '!L_IB_UPDATE_PROMPT!'; if($r -eq 'y'){ $pf='profiles/' + $conf; if(Test-Path $pf){ $lines = Get-Content $pf -Encoding UTF8; $newLine = 'IMAGEBUILDER_URL=' + [char]34 + $u + [char]34; $activeIndex = $null; $commentIndex = $null; for ($i = 0; $i -lt $lines.Count; $i++) { $trimmed = $lines[$i].Trim(); if ($trimmed -like 'IMAGEBUILDER_URL=*') { $activeIndex = $i } elseif ($trimmed -like '#*IMAGEBUILDER_URL=*') { $commentIndex = $i } }; if ($activeIndex -ne $null) { $lines[$activeIndex] = '#' + $lines[$activeIndex]; $lines = $lines[0..$activeIndex] + $newLine + $lines[($activeIndex+1)..($lines.Count-1)] } elseif ($commentIndex -ne $null) { $lines += $newLine } else { $lines += $newLine }; [System.IO.File]::WriteAllLines($pf, $lines, [System.Text.UTF8Encoding]::new($false)); Write-Host '!L_IB_UPDATE_OK!' -ForegroundColor Green } } } else { Write-Host '[DEBUG] Archive *imagebuilder*.tar.zst not found in folder.' -ForegroundColor Red } } else { Write-Host ('[DEBUG] Directory not found: ' + $cleanOut) -ForegroundColor Red }; Write-Host '------------------' -ForegroundColor Yellow " ) ) ^&^& (if "%BUILD_MODE%"=="SOURCE" ( powershell -NoProfile -Command "$Host.UI.RawUI.FlushInputBuffer()" ) ) ^&^& (if "%BUILD_MODE%"=="SOURCE" (set /p "stay=!L_K_STAY! " ^& if /i "^!stay^!"=="y" (echo. ^& echo !L_K_SHELL_H1! ^& echo !L_K_SHELL_H2! ^& echo !L_K_SHELL_H3! ^& !COMPOSE_START_CMD! !COMPOSE_FILE_ARGS! -p %PROJ_NAME% run --rm -it %SERVICE_NAME% /bin/bash)))) ^& pause ^"
 exit /b 0
 
 :BUILD_ROUTINE_INLINE
@@ -2059,8 +2126,9 @@ set "HOST_FILES_DIR=./custom_files/%PROFILE_ID%"
 set "HOST_PKGS_DIR=%HOST_PKGS_DIR%"
 set "HOST_PATCHES_DIR=%HOST_PATCHES_DIR%"
 set "HOST_OUTPUT_DIR=%REL_OUT_PATH%"
-call :RUN_COMPOSE %COMPOSE_ARG% -p %PROJ_NAME% down --remove-orphans >nul 2>&1
-call :RUN_COMPOSE %COMPOSE_ARG% -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME%
+set "COMPOSE_BASE_FILE=%COMPOSE_ARG%"
+call :RUN_COMPOSE -p %PROJ_NAME% down --remove-orphans >nul 2>&1
+call :RUN_COMPOSE -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME%
 set "BUILD_STATUS=%errorlevel%"
 exit /b %BUILD_STATUS%
 
@@ -2108,4 +2176,4 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJlYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=a4e6397bf8bc592075bde8bff3bbf911
+:: checksum:MD5=da5232d5baccd293b4e20832bba10955

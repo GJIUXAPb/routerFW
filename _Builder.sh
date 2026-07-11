@@ -338,11 +338,17 @@ resolve_runtime() {
 
 fix_output_ownership() {
     local output_dir="$1"
+    local uid
     [ -d "$output_dir" ] || return 0
     if [ "$CONTAINER_RUNTIME" = "docker" ]; then
         run_container run --rm -v "$(pwd)/${output_dir#./}:/work" alpine chown -R "$(id -u):$(id -g)" /work
     else
         [ -w "$output_dir" ] || return 1
+        uid="$(id -u)"
+        if find "$output_dir" -type f -print -quit | grep -q .; then
+            find "$output_dir" -type f ! -writable -print -quit | grep -q . && return 1
+            find "$output_dir" -type f ! -uid "$uid" -print -quit | grep -q . && return 1
+        fi
         return 0
     fi
 }
@@ -1954,4 +1960,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=568e391597c2ae46332ab3f0dc58d69c
+# checksum:MD5=f5871425c05ecacf3419c7e0e9ef58ee

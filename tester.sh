@@ -92,7 +92,7 @@ run() {
   TEE_LINE="--- Test: $label ---" tee_line
   
   set +e
-  "$SCRIPT_DIR/$SH" "$@" > "$TEMP_OUT" 2>&1
+  bash "$SCRIPT_DIR/$SH" "$@" > "$TEMP_OUT" 2>&1
   local got=$?
   set -e
   
@@ -215,11 +215,11 @@ run 1 "ib menuconfig 1" ib menuconfig 1
 # --- Регистр ---
 run 0 "HELP" HELP
 run 1 "BUILD no id" BUILD
-run_env 0 "build forced 0" ROUTERFW_TEST_BUILD_STATUS=0 "$SCRIPT_DIR/$SH" build 1
-run_env 1 "build forced 1" ROUTERFW_TEST_BUILD_STATUS=1 "$SCRIPT_DIR/$SH" build 1
-run_env 42 "build forced 42" ROUTERFW_TEST_BUILD_STATUS=42 "$SCRIPT_DIR/$SH" build 1
-run_env 0 "build-all forced 0" ROUTERFW_TEST_BUILD_STATUS=0 "$SCRIPT_DIR/$SH" build-all
-run_env 1 "build-all forced 1" ROUTERFW_TEST_BUILD_STATUS=1 "$SCRIPT_DIR/$SH" build-all
+run_env 0 "build forced 0" ROUTERFW_TEST_BUILD_STATUS=0 bash "$SCRIPT_DIR/$SH" build 1
+run_env 1 "build forced 1" ROUTERFW_TEST_BUILD_STATUS=1 bash "$SCRIPT_DIR/$SH" build 1
+run_env 42 "build forced 42" ROUTERFW_TEST_BUILD_STATUS=42 bash "$SCRIPT_DIR/$SH" build 1
+run_env 0 "build-all forced 0" ROUTERFW_TEST_BUILD_STATUS=0 bash "$SCRIPT_DIR/$SH" build-all
+run_env 1 "build-all forced 1" ROUTERFW_TEST_BUILD_STATUS=1 bash "$SCRIPT_DIR/$SH" build-all
 
 # ========== НЕ ТЕСТИРУЕМ (раскомментировать для полного прогона) ==========
 # --- реальные сборки: долгие процессы, проверять вручную; N = существующий профиль ---
@@ -260,9 +260,9 @@ TEE_LINE="" tee_line
 run_check 0 "Localization Keys" "diff <(grep -E '^(L_|H_)' system/lang/ru.env | sed 's/=.*//' | sort) <(grep -E '^(L_|H_)' system/lang/en.env | sed 's/=.*//' | sort)"
 run_check 0 "Version Sync" "ver=\$(grep -E '^ROUTERFW_VERSION=' system/version.env | cut -d= -f2 | tr -d '\r'); grep -Fq \"VER_NUM=\\\"\$ver\\\"\" _Builder.sh && grep -Fq \"set \\\"VER_NUM=\$ver\\\"\" _Builder.bat && grep -Fq \"v\$ver+\" README.md && grep -Fq \"v\$ver+\" README.en.md && grep -Fq \"Version: \$ver.\" docs/ARCHITECTURE_en.md && grep -Fq \"Версия: \$ver.\" docs/ARCHITECTURE_ru.md"
 run_check 0 "Shell Syntax" "for f in _Builder.sh tester.sh system/*.sh; do bash -n \"\$f\" || exit 1; done"
-run_check 0 "No Global Docker Prune" "pat='docker(\\.exe)? (network|volume|system) pr''une|\\$C_EXE .*system pr''une|%CONTAINER_EXE% system pr''une'; ! grep -R -E \"\$pat\" _Builder.sh _Builder.bat system/*.sh system/*.ps1 >/dev/null"
-run_check 0 "Runtime Env Override" "tmpdir=\$(mktemp -d); trap 'rm -rf \"\$tmpdir\"' EXIT; printf '%s\n' '#!/bin/sh' 'exit 1' >\"\$tmpdir/docker\"; printf '%s\n' '#!/bin/sh' 'case \"\$1 \$2\" in' '  \"info \"|\"info\") exit 0 ;;' '  \"compose version\") exit 0 ;;' '  \"--version \"|\"--version\") echo \"podman version 5.0.0\"; exit 0 ;;' '  *) exit 0 ;;' 'esac' >\"\$tmpdir/podman\"; chmod +x \"\$tmpdir/docker\" \"\$tmpdir/podman\"; PATH=\"\$tmpdir:\$PATH\" ROUTERFW_TEST_MODE= ROUTERFW_RUNTIME=podman \"$SCRIPT_DIR/$SH\" help >/dev/null 2>&1"
-run_check 0 "Runtime Explicit Failure" "tmpdir=\$(mktemp -d); trap 'rm -rf \"\$tmpdir\"' EXIT; printf '%s\n' '#!/bin/sh' 'exit 1' >\"\$tmpdir/docker\"; chmod +x \"\$tmpdir/docker\"; PATH=\"\$tmpdir:\$PATH\" ROUTERFW_TEST_MODE= \"$SCRIPT_DIR/$SH\" --runtime=docker help >/dev/null 2>&1; test \$? -eq 1"
+run_check 0 "No Global Docker Prune" "pat='(docker(\\.exe)?|podman) (network|volume|system) pr''une|run_container .* (network|volume|system) pr''une|\\$C_EXE .*system pr''une|%CONTAINER_EXE% system pr''une'; ! grep -R -E \"\$pat\" _Builder.sh _Builder.bat tester.sh tester.bat system/*.sh system/*.ps1 >/dev/null"
+run_check 0 "Runtime Env Override" "tmpdir=\$(mktemp -d); trap 'rm -rf \"\$tmpdir\"' EXIT; printf '%s\n' '#!/bin/sh' 'exit 1' >\"\$tmpdir/docker\"; printf '%s\n' '#!/bin/sh' 'case \"\$1 \$2\" in' '  \"info \"|\"info\") exit 0 ;;' '  \"compose version\") exit 0 ;;' '  \"--version \"|\"--version\") echo \"podman version 5.0.0\"; exit 0 ;;' '  *) exit 0 ;;' 'esac' >\"\$tmpdir/podman\"; chmod +x \"\$tmpdir/docker\" \"\$tmpdir/podman\"; PATH=\"\$tmpdir:\$PATH\" ROUTERFW_TEST_MODE= ROUTERFW_RUNTIME=podman bash \"$SCRIPT_DIR/$SH\" help >/dev/null 2>&1"
+run_check 0 "Runtime Explicit Failure" "tmpdir=\$(mktemp -d); trap 'rm -rf \"\$tmpdir\"' EXIT; printf '%s\n' '#!/bin/sh' 'exit 1' >\"\$tmpdir/docker\"; chmod +x \"\$tmpdir/docker\"; PATH=\"\$tmpdir:\$PATH\" ROUTERFW_TEST_MODE= bash \"$SCRIPT_DIR/$SH\" --runtime=docker help >/dev/null 2>&1; test \$? -eq 1"
 
 # Проверка BOM
 BOM_CHECK_CMD="
