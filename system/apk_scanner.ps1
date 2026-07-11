@@ -11,6 +11,7 @@ param (
 )
 
 $ScriptVersion = "1.0"
+$ContainerRuntime = if ($env:ROUTERFW_CONTAINER_RUNTIME) { $env:ROUTERFW_CONTAINER_RUNTIME } else { "docker" }
 
 # --- ЯЗЫК (передаётся от билдера) ---
 $IsRU = ($Lang -eq "RU")
@@ -104,8 +105,8 @@ foreach ($apk in $apkFiles) {
 
     # --- 1. Docker adbdump ---
     try {
-        $dockerCmd = "docker run --rm -v `"$($apk.DirectoryName)`:/data`" alpine:latest apk adbdump `/data/$apkName"
-        $adbdumpOutput = Invoke-Expression $dockerCmd
+        $mountArg = if ($ContainerRuntime -eq "podman") { "$($apk.DirectoryName):/data:ro,z" } else { "$($apk.DirectoryName):/data:ro" }
+        $adbdumpOutput = & $ContainerRuntime run --rm -v $mountArg alpine:latest apk adbdump "/data/$apkName"
         $adbdumpString = $adbdumpOutput -join "`n"
 
         if (-not $adbdumpString) { throw "No output" }
@@ -213,4 +214,4 @@ if ($warnings -gt 0) {
     exit 1
 }
 exit 0
-# checksum:MD5=9cb25ea8e35594dc2a2eb39713307baf
+# checksum:MD5=a1056895fe71d1c7a1e891d336c8fb03

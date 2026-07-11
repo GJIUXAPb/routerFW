@@ -2,9 +2,14 @@
 rem file: _Builder.bat
 rem CLI: --lang=RU|EN или -l RU|EN — язык. [ib|src] — режим. build[b], build-all[a|all], edit[e], menuconfig[k], import[i], wizard[w], clean[c], help[-h|--help]. Примеры: --lang=EN build 1, ib build 1.
 
-set "VER_NUM=4.6"
+set "VER_NUM=4.60"
 
 setlocal enabledelayedexpansion
+if exist "system\version.env" (
+  for /f "usebackq tokens=1,* delims==" %%A in ("system\version.env") do (
+    if /i "%%A"=="ROUTERFW_VERSION" set "VER_NUM=%%B"
+  )
+)
 :: Фиксируем размер окна: 120 символов в ширину, 40 в высоту (пропуск при ROUTERFW_NO_CLS — тестер)
 if not defined ROUTERFW_NO_CLS mode con: cols=120 lines=40
 :: Отключаем мигающий курсор (через PowerShell, так как в Batch нет нативного способа)
@@ -56,6 +61,13 @@ for %%P in (1 2 3 4 5 6 7 8 9) do (
         if /i "!lat:~7!"=="EN" set "FORCE_LANG=EN"
         if /i not "!lat:~7!"=="RU" if /i not "!lat:~7!"=="EN" set "CLI_LANG_ERROR=1"
     )
+    if "!lat:~0,10!"=="--runtime=" (
+        set "skip%%P=1"
+        if /i "!lat:~10!"=="auto" set "RUNTIME_FORCE=auto"
+        if /i "!lat:~10!"=="docker" set "RUNTIME_FORCE=docker"
+        if /i "!lat:~10!"=="podman" set "RUNTIME_FORCE=podman"
+        if /i not "!lat:~10!"=="auto" if /i not "!lat:~10!"=="docker" if /i not "!lat:~10!"=="podman" set "CLI_RUNTIME_ERROR=1"
+    )
 )
 call :cli_lang_skip 1 2
 call :cli_lang_skip 2 3
@@ -65,6 +77,14 @@ call :cli_lang_skip 5 6
 call :cli_lang_skip 6 7
 call :cli_lang_skip 7 8
 call :cli_lang_skip 8 9
+call :cli_runtime_skip 1 2
+call :cli_runtime_skip 2 3
+call :cli_runtime_skip 3 4
+call :cli_runtime_skip 4 5
+call :cli_runtime_skip 5 6
+call :cli_runtime_skip 6 7
+call :cli_runtime_skip 7 8
+call :cli_runtime_skip 8 9
 goto :cli_lang_done
 :cli_lang_skip
 set "curr=!la%1!"
@@ -78,11 +98,27 @@ if /i "!curr!"=="--lang" if not "!next!"=="" if /i not "!next!"=="RU" if /i not 
 if /i "!curr!"=="-l"     if "!next!"=="" set "skip%1=1" & set "CLI_LANG_ERROR=1"
 if /i "!curr!"=="-l"     if not "!next!"=="" if /i not "!next!"=="RU" if /i not "!next!"=="EN" set "skip%1=1" & set "skip%2=1" & set "CLI_LANG_ERROR=1"
 goto :eof
+:cli_runtime_skip
+set "curr=!la%1!"
+set "next=!la%2!"
+if /i "!curr!"=="--runtime" if /i "!next!"=="auto" set "RUNTIME_FORCE=auto" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="--runtime" if /i "!next!"=="docker" set "RUNTIME_FORCE=docker" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="--runtime" if /i "!next!"=="podman" set "RUNTIME_FORCE=podman" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="-r" if /i "!next!"=="auto" set "RUNTIME_FORCE=auto" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="-r" if /i "!next!"=="docker" set "RUNTIME_FORCE=docker" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="-r" if /i "!next!"=="podman" set "RUNTIME_FORCE=podman" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="--runtime" if "!next!"=="" set "skip%1=1" & set "CLI_RUNTIME_ERROR=1"
+if /i "!curr!"=="--runtime" if not "!next!"=="" if /i not "!next!"=="auto" if /i not "!next!"=="docker" if /i not "!next!"=="podman" set "skip%1=1" & set "skip%2=1" & set "CLI_RUNTIME_ERROR=1"
+if /i "!curr!"=="-r" if "!next!"=="" set "skip%1=1" & set "CLI_RUNTIME_ERROR=1"
+if /i "!curr!"=="-r" if not "!next!"=="" if /i not "!next!"=="auto" if /i not "!next!"=="docker" if /i not "!next!"=="podman" set "skip%1=1" & set "skip%2=1" & set "CLI_RUNTIME_ERROR=1"
+goto :eof
 :cli_lang_done
 
 :: === ЯЗЫКОВОЙ МОДУЛЬ ===
 :: ТУМБЛЕR: AUTO (детект), RU (всегда рус), EN (всегда англ)
 if not defined FORCE_LANG set "FORCE_LANG=AUTO"
+if not defined RUNTIME_FORCE if defined ROUTERFW_RUNTIME set "RUNTIME_FORCE=%ROUTERFW_RUNTIME%"
+if not defined RUNTIME_FORCE set "RUNTIME_FORCE=auto"
 set "SYS_LANG=EN"
 set /a "ru_score=0"
 :: Bootstrap — dict not yet available; hardcoded strings are intentional
@@ -117,6 +153,13 @@ set "LANG_FILE=system\lang\%SYS_LANG%.env"
 if not exist "%LANG_FILE%" set "LANG_FILE=system\lang\en.env"
 for /f "usebackq eol=# tokens=1,* delims==" %%k in ("%LANG_FILE%") do (
     set "_v=%%l"
+    set "_v=!_v:%%C_VAL%%=%C_VAL%!"
+    set "_v=!_v:%%C_RST%%=%C_RST%!"
+    set "_v=!_v:%%C_ERR%%=%C_ERR%!"
+    set "_v=!_v:%%C_GRY%%=%C_GRY%!"
+    set "_v=!_v:%%C_LBL%%=%C_LBL%!"
+    set "_v=!_v:%%C_KEY%%=%C_KEY%!"
+    set "_v=!_v:%%C_OK%%=%C_OK%!"
     set "_v=!_v:{C_VAL}=%C_VAL%!"
     set "_v=!_v:{C_RST}=%C_RST%!"
     set "_v=!_v:{C_ERR}=%C_ERR%!"
@@ -127,6 +170,7 @@ for /f "usebackq eol=# tokens=1,* delims==" %%k in ("%LANG_FILE%") do (
     set "%%k=!_v!"
 )
 if defined CLI_LANG_ERROR echo !L_CLI_ERR_LANG! & exit /b 1
+if defined CLI_RUNTIME_ERROR echo %C_ERR%[CLI] Invalid --runtime value. Use auto, docker, or podman.%C_RST% & exit /b 1
 :: Финальный вывод вердикта
 if /i "%FORCE_LANG%"=="AUTO" (
     echo %C_LBL%[INIT]%C_RST% %L_VERDICT% %C_VAL%%L_LANG_NAME%%C_RST% (Score %ru_score%/10^)
@@ -140,8 +184,14 @@ echo.
 set "BUILD_MODE=IMAGE"
 echo %L_INIT_ENV%
 
-:: Вывод версии Docker
-for /f "tokens=*" %%i in ('docker --version 2^>nul') do set "D_VER=%%i"
+set "ROUTERFW_RUNTIME=%RUNTIME_FORCE%"
+call :DETECT_RUNTIME
+if errorlevel 1 exit /b 1
+set "ROUTERFW_CONTAINER_RUNTIME=%CONTAINER_EXE%"
+
+if defined ROUTERFW_TEST_MODE goto TEST_MODE_INIT
+
+for /f "tokens=*" %%i in ('%CONTAINER_EXE% --version 2^>nul') do set "D_VER=%%i"
 if "%D_VER%"=="" (
     echo %L_ERR_DOCKER%
     echo %L_ERR_DOCKER_MSG%
@@ -149,18 +199,31 @@ if "%D_VER%"=="" (
 )
 echo   %C_GRY%-%C_RST% !L_INIT_DOCKER_VER!: %C_VAL%%D_VER%%C_RST%
 
-:: Вывод версии Compose
-for /f "tokens=*" %%i in ('docker-compose --version 2^>nul') do set "C_VER=%%i"
+if "%COMPOSE_IS_PLUGIN%"=="1" (
+    for /f "tokens=*" %%i in ('%CONTAINER_EXE% compose version 2^>nul') do set "C_VER=%%i"
+) else (
+    for /f "tokens=*" %%i in ('%COMPOSE_EXE% --version 2^>nul') do set "C_VER=%%i"
+)
 echo   %C_GRY%-%C_RST% !L_INIT_COMPOSE_VER!: %C_VAL%%C_VER%%C_RST%
+goto AFTER_ENGINE_INIT
+
+:TEST_MODE_INIT
+echo   %C_GRY%-%C_RST% !L_INIT_DOCKER_VER!: %C_KEY%%CONTAINER_EXE% ^(TEST MODE^)%C_RST%
+if "%COMPOSE_IS_PLUGIN%"=="1" (
+    echo   %C_GRY%-%C_RST% !L_INIT_COMPOSE_VER!: %C_KEY%%CONTAINER_EXE% compose ^(TEST MODE^)%C_RST%
+) else (
+    echo   %C_GRY%-%C_RST% !L_INIT_COMPOSE_VER!: %C_KEY%%COMPOSE_EXE% ^(TEST MODE^)%C_RST%
+)
+
+:AFTER_ENGINE_INIT
 
 :: Вывод корня проекта
 echo   %C_GRY%-%C_RST% !L_INIT_ROOT!: %C_VAL%%CD%%C_RST%
 
-echo %L_INIT_NET%
-docker network prune --force >nul 2>&1
+echo !L_INIT_NET!
 echo.
 :: === 0. РАСПАКОВКА ===
-if exist _unpacker.bat (
+if not defined ROUTERFW_TEST_MODE if exist _unpacker.bat (
     echo %L_INIT_UNPACK%
     call _unpacker.bat
 )
@@ -324,54 +387,25 @@ echo    !C_LBL!!L_PROFILES!:!C_RST!
 echo.
 )
 for %%f in (profiles\*.conf) do (
-    set /a count+=1
-    set "profile[!count!]=%%~nxf"
     set "p_id=%%~nf"
-    
-    :: Авто-создание структуры (паритет с _Builder.sh: firmware_output/imagebuilder, firmware_output/sourcebuilder)
-    if not exist "custom_files\!p_id!" mkdir "custom_files\!p_id!" >nul
-    if not exist "custom_patches\!p_id!" mkdir "custom_patches\!p_id!" >nul
-    if not exist "custom_packages\!p_id!" mkdir "custom_packages\!p_id!" >nul
-    if not exist "src_packages\!p_id!" mkdir "src_packages\!p_id!" >nul
-    if not exist "firmware_output\imagebuilder\!p_id!" mkdir "firmware_output\imagebuilder\!p_id!" >nul
-    if not exist "firmware_output\sourcebuilder\!p_id!" mkdir "firmware_output\sourcebuilder\!p_id!" >nul
-    call :CREATE_PERMS_SCRIPT "!p_id!"    
-    :: Извлекаем имя БЕЗ расширения для отображения в меню
-    set "fname_display=%%~nf"
-
-    :: Извлечение архитектуры
-    set "this_arch=--------"
-    for /f "usebackq tokens=2 delims==" %%a in (`type "profiles\%%~nxf" ^| findstr "SRC_ARCH"`) do (
-        set "VAL=%%a"
-        set "VAL=!VAL:"=!"
-        for /f "tokens=* delims= " %%b in ("!VAL!") do set "this_arch=%%b"
+    set "SAFE_TOKEN=!p_id!"
+    call :IS_SAFE_PROFILE_TOKEN
+    if errorlevel 1 (
+        echo !C_ERR![WARN] Skipping unsafe profile filename: %%~nxf!C_RST!
+        set "SAFE_TOKEN="
+    ) else (
+        set /a count+=1
+        set "profile[!count!]=%%~nxf"
+        if not exist "custom_files\!p_id!" mkdir "custom_files\!p_id!" >nul
+        if not exist "custom_patches\!p_id!" mkdir "custom_patches\!p_id!" >nul
+        if not exist "custom_packages\!p_id!" mkdir "custom_packages\!p_id!" >nul
+        if not exist "src_packages\!p_id!" mkdir "src_packages\!p_id!" >nul
+        if not exist "firmware_output\imagebuilder\!p_id!" mkdir "firmware_output\imagebuilder\!p_id!" >nul
+        if not exist "firmware_output\sourcebuilder\!p_id!" mkdir "firmware_output\sourcebuilder\!p_id!" >nul
+        call :CREATE_PERMS_SCRIPT "!p_id!"
+        if not defined CLI_CMD call :PRINT_PROFILE_ROW %%~nxf %%~nf !count!
+        set "SAFE_TOKEN="
     )
-
-    :: --- ХИРУРГИЧЕСКАЯ РАСКРАСКА РЕСУРСОВ (F P S M H) ---
-    set "st_f=!C_GRY!·!C_RST!" & dir /a-d /b /s "custom_files\!p_id!" 2>nul | findstr "^" >nul && set "st_f=!C_GRY!F!C_RST!"
-    set "st_p=!C_GRY!·!C_RST!" & dir /a-d /b /s "custom_packages\!p_id!" 2>nul | findstr "^" >nul && set "st_p=!C_KEY!P!C_RST!"
-    set "st_s=!C_GRY!·!C_RST!" & dir /a-d /b /s "src_packages\!p_id!" 2>nul | findstr "^" >nul && set "st_s=!C_VAL!S!C_RST!"
-    set "st_m=!C_GRY!·!C_RST!" & if exist "firmware_output\sourcebuilder\!p_id!\manual_config" set "st_m=!C_ERR!M!C_RST!"        
-    set "st_h=!C_GRY!·!C_RST!" & if exist "custom_files\!p_id!\hooks.sh" set "st_h=!C_LBL!H!C_RST!"
-    set "st_pt=!C_GRY!·!C_RST!" & dir /a-d /b /s "custom_patches\!p_id!" 2>nul | findstr "^" >nul && set "st_pt=!C_GRY!X!C_RST!"
-
-    :: Состояние вывода (OI OS) - Реагирует на ЛЮБЫЕ файлы в любых подпапках
-    set "st_oi=!C_GRY!··!C_RST!"
-    dir /s /a-d /b "firmware_output\imagebuilder\!p_id!\*" 2>nul | findstr "^" >nul && set "st_oi=!C_VAL!OI!C_RST!"
-    set "st_os=!C_GRY!··!C_RST!"
-    dir /s /a-d /b "firmware_output\sourcebuilder\!p_id!\*" 2>nul | findstr "^" >nul && set "st_os=!C_VAL!OS!C_RST!"
-    
-    :: ВЫРАВНИВАНИЕ (Сохранено без изменений)
-    set "id_pad=!count!"
-    if !count! LSS 10 set "id_pad= !count!"
-    set "fname_display=%%~nf"
-    set "tmp_name=!fname_display!                                             "
-    set "n_name=!tmp_name:~0,45!"
-    set "tmp_arch=!this_arch!                    "
-    set "n_arch=!tmp_arch:~0,20!"
-
-    :: ВЫВОД СТРОКИ (в CLI режиме таблицу не рисуем)
-    if not defined CLI_CMD echo    !C_GRY![!C_KEY!!id_pad!!C_GRY!]!C_RST! !n_name! !C_LBL!!n_arch!!C_RST! !C_GRY![!st_f!!st_p!!st_s!!st_m!!st_h!!st_pt! !C_RST!^|!C_GRY! !st_oi! !st_os!]!C_RST!
 )
 
 if defined CLI_CMD goto CLI_DISPATCH
@@ -411,7 +445,7 @@ if /i "%choice%"=="0" (
         echo.
         :: Используем локализованное прощание и зеленый цвет успеха
         echo !C_VAL!!L_EXIT_BYE!!C_RST!
-        timeout /t 2 >nul
+        >nul 2>&1 <nul timeout /t 2 /nobreak
         exit /b
     )
     goto MENU
@@ -450,7 +484,16 @@ if %num_choice% lss 1 goto INVALID
 :: === ОДИНОЧНАЯ СБОРКА ===
 set "SELECTED_CONF=!profile[%choice%]!"
 call :BUILD_ROUTINE "%SELECTED_CONF%"
-echo %L_RUNNING%
+set "BUILD_STATUS=%errorlevel%"
+if defined ROUTERFW_TEST_BUILD_STATUS (
+    if "%BUILD_STATUS%"=="0" (
+        echo %L_FINISHED%
+    ) else (
+        echo %L_BUILD_FATAL% %L_EXIT_CODE_LABEL% %BUILD_STATUS%
+    )
+) else (
+    echo %L_RUNNING%
+)
 pause
 goto MENU
 
@@ -546,14 +589,14 @@ set "HOST_FILES_DIR=./custom_files/!SEL_ID!"
 
 if "!BUILD_MODE!"=="SOURCE" (
     set "PROJ_NAME=srcbuild_!SEL_ID!"
-    set "COMPOSE_ARG=-f system/docker-compose-src.yaml"
+    set "COMPOSE_ARG=system/docker-compose-src.yaml"
     if DEFINED IS_LEGACY (set "SERVICE_NAME=builder-src-oldwrt") else (set "SERVICE_NAME=builder-src-openwrt")
     set "HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/!SEL_ID!"
     set "HOST_PKGS_DIR=./src_packages/!SEL_ID!"
     set "HOST_PATCHES_DIR=./custom_patches/!SEL_ID!"
 ) else (
     set "PROJ_NAME=build_!SEL_ID!"
-    set "COMPOSE_ARG=-f system/docker-compose.yaml"
+    set "COMPOSE_ARG=system/docker-compose.yaml"
     if DEFINED IS_LEGACY (set "SERVICE_NAME=builder-oldwrt") else (set "SERVICE_NAME=builder-openwrt")
     set "HOST_OUTPUT_DIR=./firmware_output/imagebuilder/!SEL_ID!"
     set "HOST_PKGS_DIR=./custom_packages/!SEL_ID!"
@@ -565,14 +608,14 @@ echo   !C_GRY!💡 Tip: Type !C_KEY!mc!C_GRY! inside to launch Midnight Commande
 
 :: Разделяем логику входа. Для SOURCE полностью имитируем окружение из src_builder.sh
 if "!BUILD_MODE!"=="SOURCE" (
-    docker-compose !COMPOSE_ARG! -p !PROJ_NAME! run --rm -it !SERVICE_NAME! /bin/bash -c "if [ -d /home/build/openwrt/.git ] && [ x$(stat -c %%U /ccache 2>/dev/null) = xbuild ]; then echo '[INIT] Permissions OK'; else echo '[INIT] Fixing permissions...'; chown -R build:build /home/build/openwrt /ccache 2>/dev/null || true; fi && sudo -E -u build bash -c 'export HOME=/home/build; git config --global --add safe.directory \"*\"; cd /home/build/openwrt 2>/dev/null || cd /home/build; exec bash'"
+    call :RUN_COMPOSE !COMPOSE_ARG! -p !PROJ_NAME! run --rm -it !SERVICE_NAME! /bin/bash -c "if [ -d /home/build/openwrt/.git ] && [ x$(stat -c %%U /ccache 2>/dev/null) = xbuild ]; then echo '[INIT] Permissions OK'; else echo '[INIT] Fixing permissions...'; chown -R build:build /home/build/openwrt /ccache 2>/dev/null || true; fi && sudo -E -u build bash -c 'export HOME=/home/build; git config --global --add safe.directory \"*\"; cd /home/build/openwrt 2>/dev/null || cd /home/build; exec bash'"
 ) else (
-    docker-compose !COMPOSE_ARG! -p !PROJ_NAME! run --rm -it !SERVICE_NAME! /bin/bash
+    call :RUN_COMPOSE !COMPOSE_ARG! -p !PROJ_NAME! run --rm -it !SERVICE_NAME! /bin/bash
 )
 
 :EDIT_DONE
 echo %L_FINISHED%
-timeout /t 2 >nul
+>nul 2>&1 <nul timeout /t 2 /nobreak
 if defined CLI_CMD exit /b 0
 goto MENU
 
@@ -580,18 +623,47 @@ goto MENU
 if "%BUILD_MODE%"=="SOURCE" (
     echo.
     echo !L_WARN_MASS!
+    if defined CLI_CMD exit /b 1
     pause
+    goto MENU
 )
 echo.
 echo === !L_MASS_START! [%BUILD_MODE%] ===
+if not defined CLI_CMD if not defined ROUTERFW_TEST_BUILD_STATUS (
+    for /L %%i in (1,1,%count%) do (
+        set "CURRENT_CONF=!profile[%%i]!"
+        call :BUILD_ROUTINE "!CURRENT_CONF!"
+        >nul 2>&1 <nul timeout /t 1 /nobreak
+    )
+    echo !L_BUILD_LAUNCHED!
+    pause
+    goto MENU
+)
+set "OVERALL_STATUS=0"
+set "SUCCESS_LIST="
+set "FAILED_LIST="
 for /L %%i in (1,1,%count%) do (
     set "CURRENT_CONF=!profile[%%i]!"
     call :BUILD_ROUTINE "!CURRENT_CONF!"
-    timeout /t 1 >nul
+    set "BUILD_STATUS=!errorlevel!"
+    set "CURRENT_ID=!CURRENT_CONF:.conf=!"
+    if "!BUILD_STATUS!"=="0" (
+        set "SUCCESS_LIST=!SUCCESS_LIST! !CURRENT_ID!"
+    ) else (
+        set "OVERALL_STATUS=1"
+        set "FAILED_LIST=!FAILED_LIST! !CURRENT_ID!"
+    )
+    >nul 2>&1 <nul timeout /t 1 /nobreak
 )
-echo !L_BUILD_LAUNCHED!
+if defined SUCCESS_LIST echo [OK] Success:!SUCCESS_LIST!
+if defined FAILED_LIST echo [FAIL] Failed:!FAILED_LIST!
+if "%OVERALL_STATUS%"=="0" (
+    echo !L_ALL_BUILDS_DONE!
+) else (
+    echo !L_BUILD_FATAL! !L_EXIT_CODE_LABEL! 1
+)
+if defined CLI_CMD exit /b %OVERALL_STATUS%
 pause
-if defined CLI_CMD exit /b 0
 goto MENU
 
 :SWITCH_MODE
@@ -633,7 +705,7 @@ for /f "usebackq tokens=2 delims==" %%a in (`type "profiles\!SEL_CONF!" ^| finds
 )
 
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "system/apk_scanner.ps1" -ProfileID "!SEL_ID!" -TargetArch "!TMP_ARCH!" -Lang "!SYS_LANG!"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:ROUTERFW_CONTAINER_RUNTIME='%CONTAINER_EXE%'; & 'system/apk_scanner.ps1' -ProfileID '!SEL_ID!' -TargetArch '!TMP_ARCH!' -Lang '!SYS_LANG!'"
 if !ERRORLEVEL! NEQ 0 (
     echo.
     echo [!] Scanner completed with warnings.
@@ -652,7 +724,7 @@ echo.
 echo  %L_SEL_IMPORT%:
 echo.
 for /L %%i in (1,1,%count%) do (
-    set "fname_tmp=!profile[%%i]:.conf=!"    
+    set "fname_tmp=!profile[%%i]:.conf=!"
     echo    %C_LBL%[%C_KEY%%%i%C_LBL%]%C_RST% !fname_tmp!
 )
 echo.
@@ -679,7 +751,7 @@ for /f "usebackq tokens=2 delims==" %%a in (`type "profiles\!SEL_CONF!" ^| finds
 
 echo.
 if exist "system/import_ipk.ps1" (
-    powershell -ExecutionPolicy Bypass -File "system/import_ipk.ps1" -ProfileID "!SEL_ID!" -TargetArch "!P_ARCH!"
+    powershell -ExecutionPolicy Bypass -Command "$env:ROUTERFW_CONTAINER_RUNTIME='%CONTAINER_EXE%'; & 'system/import_ipk.ps1' -ProfileID '!SEL_ID!' -TargetArch '!P_ARCH!'"
     pause
 ) else (
     echo %C_KEY%%L_ERR_PS1_IPK%
@@ -737,8 +809,7 @@ if "%clean_choice%"=="" goto CLEAN_MENU
 if "%clean_choice%"=="0" goto MENU
 if "%clean_choice%"=="9" (
     echo.
-    echo %L_PRUNE_RUN%
-    docker system prune -f
+    echo [WARN] Global Docker prune has been disabled for safety.
     pause
     goto CLEAN_MENU
 )
@@ -853,7 +924,7 @@ set "FOUND_ANY="
 if "%P_ID%"=="ALL" (
     echo   !L_VOL_SEARCH_ALL! !C_VAL!%V_TAG%!C_RST!
     rem Ищем по регулярному выражению в конце имени
-    for /f "tokens=*" %%v in ('docker volume ls -q ^| findstr /R /C:"_%V_TAG%$"') do (
+    for /f "tokens=*" %%v in ('%CONTAINER_EXE% volume ls -q ^| findstr /R /C:"_%V_TAG%$"') do (
         call :DO_DELETE_VOL "%%v"
         set "FOUND_ANY=1"
     )
@@ -863,7 +934,7 @@ if "%P_ID%"=="ALL" (
     set "patterns=build_%P_ID%_%V_TAG% srcbuild_%P_ID%_%V_TAG%"
     for %%v in (!patterns!) do (
         rem Проверяем, существует ли том, перед попыткой удаления (чтобы не спамить ошибками)
-        docker volume inspect %%v >nul 2>&1
+        %CONTAINER_EXE% volume inspect %%v >nul 2>&1
         if not errorlevel 1 (
             call :DO_DELETE_VOL "%%v"
             set "FOUND_ANY=1"
@@ -880,7 +951,7 @@ exit /b
 set "vol_name=%~1"
 echo   !L_VOL_DEL! !vol_name!
 :: Удаляем без подавления ошибок (2>nul), чтобы видеть причину (Locked/In use)
-docker volume rm !vol_name! >nul
+%CONTAINER_EXE% volume rm !vol_name! >nul
 if not errorlevel 1 (
     echo     - !L_R_OK!
 ) else (
@@ -909,9 +980,9 @@ if "%BUILD_MODE%"=="IMAGE" (
 )
 
 set "c_found="
-for /f "tokens=*" %%c in ('docker ps -aq --filter "!d_filter!"') do (
+for /f "tokens=*" %%c in ('%CONTAINER_EXE% ps -aq --filter "!d_filter!"') do (
     echo   !L_KILL_CONTAINER! %%c
-    docker rm -f %%c
+    %CONTAINER_EXE% rm -f %%c
     set "c_found=1"
 )
 if not defined c_found echo   !L_R_NOTHING!
@@ -930,19 +1001,19 @@ if "%BUILD_MODE%"=="IMAGE" (
 )
 
 :: 1. Сначала пробуем штатную остановку через Compose
-docker ps -q --filter "name=%PROJ_NAME%" | findstr "^" >nul
+%CONTAINER_EXE% ps -q --filter "name=%PROJ_NAME%" | findstr "^" >nul
 if not errorlevel 1 (
     echo   !L_SRV_DOWN!
-    docker-compose -f !YAML_FILE! -p !PROJ_NAME! down
+    call :RUN_COMPOSE !YAML_FILE! -p !PROJ_NAME! down
 ) else (
     echo   !L_SRV_ALREADY_DOWN!
 )
 
 :: 2. АГРЕССИВНАЯ ЗАЧИСТКА (Fix для "volume is in use")
 :: Ищем любые остатки контейнеров с этим именем, даже если Compose их не видит
-for /f "tokens=*" %%c in ('docker ps -aq --filter "!d_filter!"') do (
+for /f "tokens=*" %%c in ('%CONTAINER_EXE% ps -aq --filter "!d_filter!"') do (
     echo   !L_KILL_ORPHAN! %%c
-    docker rm -f %%c >nul 2>&1
+    %CONTAINER_EXE% rm -f %%c >nul 2>&1
 )
 exit /b
 
@@ -961,7 +1032,7 @@ set "HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/%TARGET_PROFILE_ID%"
 set "PROJ_NAME=srcbuild_%TARGET_PROFILE_ID%"
 
 :: Запускаем make clean с полным выводом в консоль
-docker-compose -f system/docker-compose-src.yaml -p %PROJ_NAME% run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && if [ -f Makefile ]; then echo '[CMD] make clean'; make clean; echo '[DONE] Clean Completed'; else echo '[WARN] Makefile not found'; fi"
+call :RUN_COMPOSE system/docker-compose-src.yaml -p %PROJ_NAME% run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && if [ -f Makefile ]; then echo '[CMD] make clean'; make clean; echo '[DONE] Clean Completed'; else echo '[WARN] Makefile not found'; fi"
 echo.
 pause
 if defined CLI_CLEAN_YES exit /b 0
@@ -1005,7 +1076,7 @@ set "HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/%TARGET_PROFILE_ID%"
 set "PROJ_NAME=srcbuild_%TARGET_PROFILE_ID%"
 
 :: Запускаем удаление tmp внутри контейнера
-docker-compose -f system/docker-compose-src.yaml -p %PROJ_NAME% run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && echo '[CMD] rm -rf tmp/' && rm -rf tmp/ && echo '[DONE] Index/Tmp cleaned'"
+call :RUN_COMPOSE system/docker-compose-src.yaml -p %PROJ_NAME% run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && echo '[CMD] rm -rf tmp/' && rm -rf tmp/ && echo '[DONE] Index/Tmp cleaned'"
 echo.
 pause
 if defined CLI_CLEAN_YES exit /b 0
@@ -1021,7 +1092,7 @@ if not "%TARGET_PROFILE_ID%"=="ALL" (
 
     echo   !L_SRV_DOWN! (Full)...
     rem Показываем процесс удаления сетей и томов
-    docker-compose -f system/docker-compose-src.yaml -p !PROJ_NAME! down -v
+    call :RUN_COMPOSE system/docker-compose-src.yaml -p !PROJ_NAME! down -v
 ) else (
     call :HELPER_RELEASE_LOCKS "ALL"
 )
@@ -1060,9 +1131,9 @@ if not "%TARGET_PROFILE_ID%"=="ALL" (
     set "SELECTED_CONF=dummy"
     set "HOST_FILES_DIR=./custom_files"
     set "HOST_OUTPUT_DIR=./firmware_output"
-    
+
     echo   !L_SRV_DOWN! (Full)...
-    docker-compose -f system/docker-compose.yaml -p !PROJ_NAME! down -v
+    call :RUN_COMPOSE system/docker-compose.yaml -p !PROJ_NAME! down -v
 ) else (
     call :HELPER_RELEASE_LOCKS "ALL"
 )
@@ -1122,6 +1193,7 @@ echo.
 echo !C_LBL!!L_CLI_HELP_VER!!VER_NUM! !L_CLI_HELP_HEAD!!C_RST!
 echo.
 echo !C_GRY!!L_CLI_LANG_KEY!!C_RST!
+echo !C_GRY!!L_CLI_RUNTIME_KEY!!C_RST!
 echo !C_GRY!!L_CLI_MODE_PREFIX!!C_RST!
 echo.
 echo   build, b              ^<id^>                 %L_CLI_DESC_BUILD%
@@ -1348,19 +1420,155 @@ for /f "tokens=*" %%F in ('findstr "BEGIN_B64_" _unpacker.bat 2^>nul') do (
 echo !C_OK!Global clearance done! Processed files: !CHK_N!!C_RST!
 exit /b 0
 
+:DETECT_RUNTIME
+set "CONTAINER_EXE="
+set "COMPOSE_EXE="
+set "COMPOSE_IS_PLUGIN=0"
+if defined ROUTERFW_TEST_MODE (
+    if /i "%ROUTERFW_RUNTIME%"=="podman" (
+        set "CONTAINER_EXE=podman"
+        set "COMPOSE_IS_PLUGIN=1"
+        exit /b 0
+    )
+    if /i not "%ROUTERFW_RUNTIME%"=="docker" if /i not "%ROUTERFW_RUNTIME%"=="auto" if /i not "%ROUTERFW_RUNTIME%"=="podman" (
+        echo %C_ERR%[CLI] Invalid --runtime value. Use auto, docker, or podman.%C_RST%
+        exit /b 1
+    )
+    set "CONTAINER_EXE=docker"
+    set "COMPOSE_IS_PLUGIN=1"
+    exit /b 0
+)
+if /i "%ROUTERFW_RUNTIME%"=="docker" (
+    call :TRY_RUNTIME_DOCKER
+    exit /b !errorlevel!
+)
+if /i "%ROUTERFW_RUNTIME%"=="podman" (
+    call :TRY_RUNTIME_PODMAN
+    exit /b !errorlevel!
+)
+if /i not "%ROUTERFW_RUNTIME%"=="auto" (
+    echo %C_ERR%[CLI] Invalid --runtime value. Use auto, docker, or podman.%C_RST%
+    exit /b 1
+)
+call :TRY_RUNTIME_DOCKER
+if not errorlevel 1 exit /b 0
+call :TRY_RUNTIME_PODMAN
+if not errorlevel 1 exit /b 0
+echo %L_ERR_DOCKER%
+echo %L_ERR_DOCKER_MSG%
+exit /b 1
+
+:TRY_RUNTIME_DOCKER
+docker info >nul 2>&1
+if errorlevel 1 exit /b 1
+set "CONTAINER_EXE=docker"
+docker compose version >nul 2>&1
+if not errorlevel 1 (
+    set "COMPOSE_IS_PLUGIN=1"
+    set "COMPOSE_EXE="
+    exit /b 0
+)
+docker-compose --version >nul 2>&1
+if errorlevel 1 exit /b 1
+set "COMPOSE_IS_PLUGIN=0"
+set "COMPOSE_EXE=docker-compose"
+exit /b 0
+
+:TRY_RUNTIME_PODMAN
+podman info >nul 2>&1
+if errorlevel 1 exit /b 1
+set "CONTAINER_EXE=podman"
+podman compose version >nul 2>&1
+if not errorlevel 1 (
+    set "COMPOSE_IS_PLUGIN=1"
+    set "COMPOSE_EXE="
+    exit /b 0
+)
+podman-compose --version >nul 2>&1
+if errorlevel 1 exit /b 1
+set "COMPOSE_IS_PLUGIN=0"
+set "COMPOSE_EXE=podman-compose"
+exit /b 0
+
+:RUN_COMPOSE
+setlocal
+set "base_file=%~1"
+shift
+if "%COMPOSE_IS_PLUGIN%"=="1" if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose.yaml" %CONTAINER_EXE% compose -f "%base_file%" -f "system/podman-compose.yaml" %*
+if "%COMPOSE_IS_PLUGIN%"=="1" if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose.yaml" endlocal & exit /b %errorlevel%
+if "%COMPOSE_IS_PLUGIN%"=="1" if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose-src.yaml" %CONTAINER_EXE% compose -f "%base_file%" -f "system/podman-compose-src.yaml" %*
+if "%COMPOSE_IS_PLUGIN%"=="1" if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose-src.yaml" endlocal & exit /b %errorlevel%
+if "%COMPOSE_IS_PLUGIN%"=="1" %CONTAINER_EXE% compose -f "%base_file%" %*
+if "%COMPOSE_IS_PLUGIN%"=="1" endlocal & exit /b %errorlevel%
+if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose.yaml" %COMPOSE_EXE% -f "%base_file%" -f "system/podman-compose.yaml" %*
+if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose.yaml" endlocal & exit /b %errorlevel%
+if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose-src.yaml" %COMPOSE_EXE% -f "%base_file%" -f "system/podman-compose-src.yaml" %*
+if /i "%CONTAINER_EXE%"=="podman" if /i "%base_file%"=="system/docker-compose-src.yaml" endlocal & exit /b %errorlevel%
+%COMPOSE_EXE% -f "%base_file%" %*
+endlocal & exit /b %errorlevel%
+
+:SET_COMPOSE_FILE_ARGS
+set "COMPOSE_FILE_ARGS=-f %~1"
+if /i "%CONTAINER_EXE%"=="podman" (
+    if /i "%~1"=="system/docker-compose.yaml" set "COMPOSE_FILE_ARGS=%COMPOSE_FILE_ARGS% -f system/podman-compose.yaml"
+    if /i "%~1"=="system/docker-compose-src.yaml" set "COMPOSE_FILE_ARGS=%COMPOSE_FILE_ARGS% -f system/podman-compose-src.yaml"
+)
+exit /b 0
+
+:IS_SAFE_PROFILE_TOKEN
+if not defined SAFE_TOKEN exit /b 1
+echo(!SAFE_TOKEN!| findstr /R /X "[A-Za-z0-9._-][A-Za-z0-9._-]*" >nul || exit /b 1
+echo(!SAFE_TOKEN!| findstr /C:".." >nul && exit /b 1
+echo(!SAFE_TOKEN!| findstr /C:"/" >nul && exit /b 1
+echo(!SAFE_TOKEN!| findstr /C:"\\" >nul && exit /b 1
+exit /b 0
+
+:VALIDATE_SELECTED_CONF
+if not defined SELECTED_CONF exit /b 1
+set "selected_id=!SELECTED_CONF:.conf=!"
+set "SAFE_TOKEN=!selected_id!"
+call :IS_SAFE_PROFILE_TOKEN
+if errorlevel 1 (
+    echo !L_CLI_ERR_PROFILE! !selected_id!!C_RST!
+    set "SELECTED_CONF="
+    set "SAFE_TOKEN="
+    exit /b 1
+)
+set "SAFE_TOKEN="
+exit /b 0
+
 :CLI_RESOLVE_PROFILE
 set "SELECTED_CONF="
 if "!CLI_ARG1!"=="" echo !L_CLI_ERR_PROFILE_REQUIRED! & exit /b 1
-set "cli_trim=!CLI_ARG1: =!"
+for /f "tokens=* delims= " %%A in ("!CLI_ARG1!") do set "cli_trim=%%A"
+for /l %%# in (1,1,64) do if defined cli_trim if "!cli_trim:~-1!"==" " set "cli_trim=!cli_trim:~0,-1!"
 if "!cli_trim!"=="" echo !L_CLI_ERR_PROFILE_REQUIRED! & exit /b 1
 set "cli_n=0"
-set /a "cli_n=!CLI_ARG1!" 2>nul
+set /a "cli_n=!cli_trim!" 2>nul
 if !cli_n! geq 1 if !cli_n! leq %count% (
     for /L %%i in (1,1,%count%) do if %%i==!cli_n! set "SELECTED_CONF=!profile[%%i]!"
 )
+if defined SELECTED_CONF (
+    call :VALIDATE_SELECTED_CONF
+    if errorlevel 1 exit /b 1
+)
+if not defined SELECTED_CONF (
+    set "SAFE_TOKEN=!cli_trim!"
+    call :IS_SAFE_PROFILE_TOKEN
+    if errorlevel 1 (
+        set "SAFE_TOKEN="
+        echo !L_CLI_ERR_PROFILE! !CLI_ARG1!!C_RST!
+        exit /b 1
+    )
+    set "SAFE_TOKEN="
+)
 if not defined SELECTED_CONF for /L %%i in (1,1,%count%) do (
     set "pbase=!profile[%%i]:.conf=!"
-    if /i "!pbase!"=="!CLI_ARG1!" set "SELECTED_CONF=!profile[%%i]!"
+    if /i "!pbase!"=="!cli_trim!" (
+        set "SELECTED_CONF=!profile[%%i]!"
+        call :VALIDATE_SELECTED_CONF
+        if errorlevel 1 exit /b 1
+    )
 )
 if not defined SELECTED_CONF (
     echo !L_CLI_ERR_PROFILE! !CLI_ARG1!!C_RST!
@@ -1370,17 +1578,23 @@ exit /b 0
 
 :CLI_BUILD
 if "!CLI_ARG1!"=="" echo !L_CLI_ERR_BUILD_NO_ID! & exit /b 1
-set "cli_trim=!CLI_ARG1: =!"
+for /f "tokens=* delims= " %%A in ("!CLI_ARG1!") do set "cli_trim=%%A"
 if "!cli_trim!"=="" echo !L_CLI_ERR_BUILD_NO_ID! & exit /b 1
 call :CLI_RESOLVE_PROFILE
 if not defined SELECTED_CONF exit /b 1
 call :BUILD_ROUTINE "!SELECTED_CONF!"
-echo !L_RUNNING!
-exit /b 0
+set "BUILD_STATUS=!errorlevel!"
+if "!BUILD_STATUS!"=="0" (
+    echo !L_FINISHED!
+) else (
+    echo !L_BUILD_FATAL! !L_EXIT_CODE_LABEL! !BUILD_STATUS!
+)
+exit /b !BUILD_STATUS!
 
 :CLI_EDIT
 if not defined CLI_ARG1 echo !L_CLI_ERR_PROFILE_REQUIRED! & exit /b 1
-set "cli_trim=!CLI_ARG1: =!"
+for /f "tokens=* delims= " %%A in ("!CLI_ARG1!") do set "cli_trim=%%A"
+for /l %%# in (1,1,64) do if defined cli_trim if "!cli_trim:~-1!"==" " set "cli_trim=!cli_trim:~0,-1!"
 if "!cli_trim!"=="" echo !L_CLI_ERR_PROFILE_REQUIRED! & exit /b 1
 call :CLI_RESOLVE_PROFILE
 if not defined SELECTED_CONF exit /b 1
@@ -1416,7 +1630,7 @@ for /f "usebackq tokens=2 delims==" %%a in (`type "profiles\!SEL_CONF!" ^| finds
     for /f "tokens=* delims= " %%b in ("!VAL!") do set "P_ARCH=%%b"
 )
 if exist "system/import_ipk.ps1" (
-    powershell -ExecutionPolicy Bypass -File "system/import_ipk.ps1" -ProfileID "!SEL_ID!" -TargetArch "!P_ARCH!"
+    powershell -ExecutionPolicy Bypass -Command "$env:ROUTERFW_CONTAINER_RUNTIME='%CONTAINER_EXE%'; & 'system/import_ipk.ps1' -ProfileID '!SEL_ID!' -TargetArch '!P_ARCH!'"
 ) else (
     echo !C_KEY!!L_ERR_PS1_IPK!
 )
@@ -1426,9 +1640,8 @@ exit /b 0
 if not defined CLI_ARG1 goto CLEAN_MENU
 set "clean_choice=!CLI_ARG1!"
 if "!clean_choice!"=="9" (
-    echo !L_PRUNE_RUN!
-    docker system prune -f
-    exit /b 0
+    echo [CLI] Global Docker prune is disabled in non-interactive mode.
+    exit /b 1
 )
 if not defined CLI_ARG2 goto CLEAN_MENU
 set "p_choice=!CLI_ARG2!"
@@ -1692,22 +1905,22 @@ echo fi >> "%RUNNER_SCRIPT%"
 echo %L_K_LAUNCH%
 echo.
 :: FIX: Smart Chown (оптимизация запуска) + Security Opt
-set "HOST_PKGS_DIR=./src_packages/%PROFILE_ID%" && docker-compose -f system/docker-compose-src.yaml -p %PROJ_NAME% run --build --rm -it %SERVICE_NAME% /bin/bash -c "if [ -d /home/build/openwrt/.git ] && [ x$(stat -c %%U /ccache 2>/dev/null) = xbuild ]; then echo '[INIT] Permissions OK'; else echo '[INIT] Fixing permissions (Slow)...'; chown -R build:build /home/build/openwrt /ccache; fi && chown build:build /output && tr -d '\r' < /output/_menuconfig_runner.sh > /tmp/r.sh && chmod +x /tmp/r.sh && sudo -E -u build bash /tmp/r.sh"
+set "HOST_PKGS_DIR=./src_packages/%PROFILE_ID%" && call :RUN_COMPOSE system/docker-compose-src.yaml -p %PROJ_NAME% run --build --rm -it %SERVICE_NAME% /bin/bash -c "if [ -d /home/build/openwrt/.git ] && [ x$(stat -c %%U /ccache 2>/dev/null) = xbuild ]; then echo '[INIT] Permissions OK'; else echo '[INIT] Fixing permissions (Slow)...'; chown -R build:build /home/build/openwrt /ccache; fi && chown build:build /output && tr -d '\r' < /output/_menuconfig_runner.sh > /tmp/r.sh && chmod +x /tmp/r.sh && sudo -E -u build bash /tmp/r.sh"
 :: --- БЛОК ПОСТ-ОБРАБОТКИ КОНФИГУРАЦИИ ---
 if exist "%WIN_OUT_PATH%\manual_config" (
     echo.
     echo %C_KEY%!L_SEPARATOR!%C_RST%
-    
+
     :: Получаем метку времени
     for /f "usebackq" %%a in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd_HHmmss'"`) do set "ts=%%a"
-    
+
     :: Выводим информацию о целевом файле
     echo !L_K_SYNC_TGT! %C_VAL%%CONF_FILE%%C_RST%
-    
+
     set "m_apply=Y"
     :: Используем переменную вопроса из словаря напрямую
     set /p "m_apply=%L_K_MOVE_ASK%: "
-    
+
     if /i "!m_apply!"=="Y" (
         echo !L_K_SYNC!
         powershell -NoProfile -Command "$p='profiles\%CONF_FILE%'; $m='%WIN_OUT_PATH%\manual_config'; $n=Get-Content $m | Where-Object {$_.Trim() -ne ''} | ForEach-Object { $_.Trim() -replace [char]39, ([char]39+[char]92+[char]39+[char]39) }; if ($n) { $old=Get-Content $p -Raw; $v='SRC_EXTRA_CONFIG=' + [char]39 + ($n -join [char]10) + [char]39; $q=[char]39 + '|' + [char]34; $reg='(?ms)SRC_EXTRA_CONFIG\s*=\s*(' + $q + ').*?\1'; if ($old -match $reg) { $f=$old -replace $reg, $v } elseif ($old -match 'SRC_EXTRA_CONFIG=') { $f=$old -replace '(?ms)SRC_EXTRA_CONFIG=.*', $v } else { $f=$old.Trim() + [char]13 + [char]10 + [char]13 + [char]10 + $v + [char]13 + [char]10 }; [IO.File]::WriteAllText($p, $f, [System.Text.UTF8Encoding]::new($false)) }" && echo !L_K_MOVE_OK!
@@ -1752,7 +1965,7 @@ for /f "usebackq tokens=2 delims==" %%a in (`type "profiles\%CONF_FILE%" ^| find
 if "%TARGET_VAL%"=="" (
     echo !L_P_SKIP! %TARGET_VAR% !L_ERR_VAR_NF!
     echo !L_ERR_SKIP!
-    exit /b
+    exit /b 1
 )
 
 :: 2. ПРОВЕРКА ВЕРСИИ (Legacy)
@@ -1764,24 +1977,27 @@ echo "!TARGET_VAL!" | findstr /C:"18.06" >nul && set IS_LEGACY=1
 
 :: 3. НАСТРОЙКА ПУТЕЙ И DOCKER
 if "%BUILD_MODE%"=="IMAGE" (
-    :: --- ПУТИ ДЛЯ IMAGE BUILDER ---
+    rem --- ПУТИ ДЛЯ IMAGE BUILDER ---
     set "REL_OUT_PATH=./firmware_output/imagebuilder/%PROFILE_ID%"
     set "HOST_PKGS_DIR=./custom_packages/%PROFILE_ID%"
     set "PROJ_NAME=build_%PROFILE_ID%"
-    set "COMPOSE_ARG=-f system/docker-compose.yaml"
+    set "COMPOSE_ARG=system/docker-compose.yaml"
+    set "COMPOSE_BASE=system/docker-compose.yaml"
     set "WINDOW_TITLE=I: %PROFILE_ID%"
     if DEFINED IS_LEGACY (set "SERVICE_NAME=builder-oldwrt") else (set "SERVICE_NAME=builder-openwrt")
 ) else (
-    :: --- ПУТИ ДЛЯ SOURCE BUILDER ---
+    rem --- ПУТИ ДЛЯ SOURCE BUILDER ---
     set "REL_OUT_PATH=./firmware_output/sourcebuilder/%PROFILE_ID%"
     set "HOST_PKGS_DIR=./src_packages/%PROFILE_ID%"
     if not exist "custom_patches\%PROFILE_ID%" mkdir "custom_patches\%PROFILE_ID%"
     set "HOST_PATCHES_DIR=./custom_patches/%PROFILE_ID%"
     set "PROJ_NAME=srcbuild_%PROFILE_ID%"
-    set "COMPOSE_ARG=-f system/docker-compose-src.yaml"
+    set "COMPOSE_ARG=system/docker-compose-src.yaml"
+    set "COMPOSE_BASE=system/docker-compose-src.yaml"
     set "WINDOW_TITLE=S: %PROFILE_ID%"
     if DEFINED IS_LEGACY (set "SERVICE_NAME=builder-src-oldwrt") else (set "SERVICE_NAME=builder-src-openwrt")
 )
+call :SET_COMPOSE_FILE_ARGS "!COMPOSE_BASE!"
 
 :: Создаем папку
 if not exist "%REL_OUT_PATH%" mkdir "%REL_OUT_PATH%"
@@ -1789,13 +2005,18 @@ echo !L_P_LAUNCH! %PROFILE_ID%
 echo !L_INFO!   !L_P_TARGET!: !TARGET_VAL!
 echo !L_INFO!   !L_P_SERVICE!: %SERVICE_NAME%
 
+if defined ROUTERFW_TEST_BUILD_STATUS (
+    echo [TEST] Forcing build status: %ROUTERFW_TEST_BUILD_STATUS%
+    exit /b %ROUTERFW_TEST_BUILD_STATUS%
+)
+
 :: 3.5 APK SCANNER (только IB, только если есть .apk)
 if "%BUILD_MODE%"=="IMAGE" (
     if exist "%HOST_PKGS_DIR%" (
         set "APK_FOUND="
         for %%F in ("%HOST_PKGS_DIR%\*.apk") do set "APK_FOUND=1"
         if defined APK_FOUND (
-            :: Извлекаем SRC_ARCH из профиля для сканера
+            rem Извлекаем SRC_ARCH из профиля для сканера
             set "TMP_ARCH=unknown"
             for /f "usebackq tokens=2 delims==" %%a in (`type "profiles\%CONF_FILE%" ^| findstr "SRC_ARCH"`) do (
                 set "TMP_ARCH=%%a"
@@ -1803,14 +2024,14 @@ if "%BUILD_MODE%"=="IMAGE" (
             )
             echo.
             echo [*] APK files detected. Running scanner...
-            powershell -NoProfile -ExecutionPolicy Bypass -File "system/apk_scanner.ps1" -ProfileID "%PROFILE_ID%" -TargetArch "!TMP_ARCH!" -Lang "!SYS_LANG!"
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:ROUTERFW_CONTAINER_RUNTIME='%CONTAINER_EXE%'; & 'system/apk_scanner.ps1' -ProfileID '%PROFILE_ID%' -TargetArch '!TMP_ARCH!' -Lang '!SYS_LANG!'"
             if !ERRORLEVEL! NEQ 0 (
                 echo.
                 echo [!] Scanner found issues. Continue anyway? [Y/n]:
                 set /p "SCAN_CHOICE="
                 if /i "!SCAN_CHOICE!"=="n" (
                     echo Build cancelled.
-                    exit /b
+                    exit /b 1
                 )
             )
             echo.
@@ -1819,13 +2040,63 @@ if "%BUILD_MODE%"=="IMAGE" (
 )
 
 :: 4. ЗАПУСК (Используем уже вычисленные переменные путей)
+if defined CLI_CMD goto BUILD_ROUTINE_INLINE
+if defined ROUTERFW_TEST_BUILD_STATUS goto BUILD_ROUTINE_INLINE
+
+if "%COMPOSE_IS_PLUGIN%"=="1" (
+    set "COMPOSE_START_CMD=%CONTAINER_EXE% compose"
+) else (
+    set "COMPOSE_START_CMD=%COMPOSE_EXE%"
+)
+
 :: Запуск в отдельном окне (с поддержкой интерактивного входа для SOURCE режима и обновления профиля)
-START "%WINDOW_TITLE%" cmd /v:on /c ^"set "SELECTED_CONF=%CONF_FILE%" ^&^& set "HOST_FILES_DIR=./custom_files/%PROFILE_ID%" ^&^& set "HOST_PKGS_DIR=%HOST_PKGS_DIR%" ^&^& set "HOST_PATCHES_DIR=%HOST_PATCHES_DIR%" ^&^& set "HOST_OUTPUT_DIR=%REL_OUT_PATH%" ^&^& (docker-compose %COMPOSE_ARG% -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME% ^|^| echo !L_BUILD_FATAL!) ^&^& echo. ^&^& echo !L_FINISHED! ^&^& (if "%BUILD_MODE%"=="SOURCE" ( powershell -NoProfile -ExecutionPolicy Bypass -Command "$out='%REL_OUT_PATH%'; $conf='!SELECTED_CONF!'; Write-Host '--- DEBUG INFO ---' -ForegroundColor Yellow; if([string]::IsNullOrWhiteSpace($out)){ $out='./firmware_output/sourcebuilder/%PROFILE_ID%' }; Write-Host ('[DEBUG] Output Dir: ' + $out); $cleanOut = $out.Replace('./',''); if(Test-Path $cleanOut){ $files = Get-ChildItem -Path $cleanOut -Filter '*imagebuilder*.tar.zst' -Recurse; Write-Host ('[DEBUG] Files found: ' + $files.Count); $best = $files | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if($best){ $u = (Resolve-Path -Path $best.FullName -Relative).Replace('.\','').Replace('\','/'); Write-Host ('[DEBUG] Found IB: ' + $u) -ForegroundColor Yellow; Write-Host ''; Write-Host '!L_IB_UPDATE_ASK!' -ForegroundColor Cyan; $r = Read-Host '!L_IB_UPDATE_PROMPT!'; if($r -eq 'y'){ $pf='profiles/' + $conf; if(Test-Path $pf){ $lines = Get-Content $pf -Encoding UTF8; $newLine = 'IMAGEBUILDER_URL=' + [char]34 + $u + [char]34; $activeIndex = $null; $commentIndex = $null; for ($i = 0; $i -lt $lines.Count; $i++) { $trimmed = $lines[$i].Trim(); if ($trimmed -like 'IMAGEBUILDER_URL=*') { $activeIndex = $i } elseif ($trimmed -like '#*IMAGEBUILDER_URL=*') { $commentIndex = $i } }; if ($activeIndex -ne $null) { $lines[$activeIndex] = '#' + $lines[$activeIndex]; $lines = $lines[0..$activeIndex] + $newLine + $lines[($activeIndex+1)..($lines.Count-1)] } elseif ($commentIndex -ne $null) { $lines += $newLine } else { $lines += $newLine }; [System.IO.File]::WriteAllLines($pf, $lines, [System.Text.UTF8Encoding]::new($false)); Write-Host '!L_IB_UPDATE_OK!' -ForegroundColor Green } } } else { Write-Host '[DEBUG] Archive *imagebuilder*.tar.zst not found in folder.' -ForegroundColor Red } } else { Write-Host ('[DEBUG] Directory not found: ' + $cleanOut) -ForegroundColor Red }; Write-Host '------------------' -ForegroundColor Yellow " ) ) ^&^& (if "%BUILD_MODE%"=="SOURCE" ( powershell -NoProfile -Command "$Host.UI.RawUI.FlushInputBuffer()" ) ) ^&^& (if "%BUILD_MODE%"=="SOURCE" (set /p "stay=!L_K_STAY! " ^& if /i "^!stay^!"=="y" (echo. ^& echo !L_K_SHELL_H1! ^& echo !L_K_SHELL_H2! ^& echo !L_K_SHELL_H3! ^& docker-compose %COMPOSE_ARG% -p %PROJ_NAME% run --rm -it %SERVICE_NAME% /bin/bash))) ^&^& pause ^"
-exit /b
+START "%WINDOW_TITLE%" cmd /v:on /c ^"set "SELECTED_CONF=%CONF_FILE%" ^&^& set "HOST_FILES_DIR=./custom_files/%PROFILE_ID%" ^&^& set "HOST_PKGS_DIR=%HOST_PKGS_DIR%" ^&^& set "HOST_PATCHES_DIR=%HOST_PATCHES_DIR%" ^&^& set "HOST_OUTPUT_DIR=%REL_OUT_PATH%" ^&^& (!COMPOSE_START_CMD! !COMPOSE_FILE_ARGS! -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME% ^|^| echo !L_BUILD_FATAL!) ^&^& echo. ^&^& echo !L_FINISHED! ^&^& (if "%BUILD_MODE%"=="SOURCE" ( powershell -NoProfile -ExecutionPolicy Bypass -Command "$out='%REL_OUT_PATH%'; $conf='!SELECTED_CONF!'; Write-Host '--- DEBUG INFO ---' -ForegroundColor Yellow; if([string]::IsNullOrWhiteSpace($out)){ $out='./firmware_output/sourcebuilder/%PROFILE_ID%' }; Write-Host ('[DEBUG] Output Dir: ' + $out); $cleanOut = $out.Replace('./',''); if(Test-Path $cleanOut){ $files = Get-ChildItem -Path $cleanOut -Filter '*imagebuilder*.tar.zst' -Recurse; Write-Host ('[DEBUG] Files found: ' + $files.Count); $best = $files | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if($best){ $u = (Resolve-Path -Path $best.FullName -Relative).Replace('.\','').Replace('\','/'); Write-Host ('[DEBUG] Found IB: ' + $u) -ForegroundColor Yellow; Write-Host ''; Write-Host '!L_IB_UPDATE_ASK!' -ForegroundColor Cyan; $r = Read-Host '!L_IB_UPDATE_PROMPT!'; if($r -eq 'y'){ $pf='profiles/' + $conf; if(Test-Path $pf){ $lines = Get-Content $pf -Encoding UTF8; $newLine = 'IMAGEBUILDER_URL=' + [char]34 + $u + [char]34; $activeIndex = $null; $commentIndex = $null; for ($i = 0; $i -lt $lines.Count; $i++) { $trimmed = $lines[$i].Trim(); if ($trimmed -like 'IMAGEBUILDER_URL=*') { $activeIndex = $i } elseif ($trimmed -like '#*IMAGEBUILDER_URL=*') { $commentIndex = $i } }; if ($activeIndex -ne $null) { $lines[$activeIndex] = '#' + $lines[$activeIndex]; $lines = $lines[0..$activeIndex] + $newLine + $lines[($activeIndex+1)..($lines.Count-1)] } elseif ($commentIndex -ne $null) { $lines += $newLine } else { $lines += $newLine }; [System.IO.File]::WriteAllLines($pf, $lines, [System.Text.UTF8Encoding]::new($false)); Write-Host '!L_IB_UPDATE_OK!' -ForegroundColor Green } } } else { Write-Host '[DEBUG] Archive *imagebuilder*.tar.zst not found in folder.' -ForegroundColor Red } } else { Write-Host ('[DEBUG] Directory not found: ' + $cleanOut) -ForegroundColor Red }; Write-Host '------------------' -ForegroundColor Yellow " ) ) ^&^& (if "%BUILD_MODE%"=="SOURCE" ( powershell -NoProfile -Command "$Host.UI.RawUI.FlushInputBuffer()" ) ) ^&^& (if "%BUILD_MODE%"=="SOURCE" (set /p "stay=!L_K_STAY! " ^& if /i "^!stay^!"=="y" (echo. ^& echo !L_K_SHELL_H1! ^& echo !L_K_SHELL_H2! ^& echo !L_K_SHELL_H3! ^& !COMPOSE_START_CMD! !COMPOSE_FILE_ARGS! -p %PROJ_NAME% run --rm -it %SERVICE_NAME% /bin/bash))) ^&^& pause ^"
+exit /b 0
+
+:BUILD_ROUTINE_INLINE
+set "SELECTED_CONF=%CONF_FILE%"
+set "HOST_FILES_DIR=./custom_files/%PROFILE_ID%"
+set "HOST_PKGS_DIR=%HOST_PKGS_DIR%"
+set "HOST_PATCHES_DIR=%HOST_PATCHES_DIR%"
+set "HOST_OUTPUT_DIR=%REL_OUT_PATH%"
+call :RUN_COMPOSE %COMPOSE_ARG% -p %PROJ_NAME% down --remove-orphans >nul 2>&1
+call :RUN_COMPOSE %COMPOSE_ARG% -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME%
+set "BUILD_STATUS=%errorlevel%"
+exit /b %BUILD_STATUS%
 
 :: =========================================================
 ::  HELPERS
 :: =========================================================
+:PRINT_PROFILE_ROW
+set "row_conf=%~1"
+set "p_id=%~2"
+set "row_idx=%~3"
+set "fname_display=%~2"
+set "this_arch=--------"
+for /f "usebackq tokens=2 delims==" %%a in (`type "profiles\%~1" ^| findstr "SRC_ARCH"`) do (
+    set "VAL=%%a"
+    set "VAL=!VAL:"=!"
+    for /f "tokens=* delims= " %%b in ("!VAL!") do set "this_arch=%%b"
+)
+set "st_f=!C_GRY!·!C_RST!" & dir /a-d /b /s "custom_files\!p_id!" 2>nul | findstr "^" >nul && set "st_f=!C_GRY!F!C_RST!"
+set "st_p=!C_GRY!·!C_RST!" & dir /a-d /b /s "custom_packages\!p_id!" 2>nul | findstr "^" >nul && set "st_p=!C_KEY!P!C_RST!"
+set "st_s=!C_GRY!·!C_RST!" & dir /a-d /b /s "src_packages\!p_id!" 2>nul | findstr "^" >nul && set "st_s=!C_VAL!S!C_RST!"
+set "st_m=!C_GRY!·!C_RST!" & if exist "firmware_output\sourcebuilder\!p_id!\manual_config" set "st_m=!C_ERR!M!C_RST!"
+set "st_h=!C_GRY!·!C_RST!" & if exist "custom_files\!p_id!\hooks.sh" set "st_h=!C_LBL!H!C_RST!"
+set "st_pt=!C_GRY!·!C_RST!" & dir /a-d /b /s "custom_patches\!p_id!" 2>nul | findstr "^" >nul && set "st_pt=!C_GRY!X!C_RST!"
+set "st_oi=!C_GRY!··!C_RST!"
+dir /s /a-d /b "firmware_output\imagebuilder\!p_id!\*" 2>nul | findstr "^" >nul && set "st_oi=!C_VAL!OI!C_RST!"
+set "st_os=!C_GRY!··!C_RST!"
+dir /s /a-d /b "firmware_output\sourcebuilder\!p_id!\*" 2>nul | findstr "^" >nul && set "st_os=!C_VAL!OS!C_RST!"
+set "id_pad=!row_idx!"
+if !row_idx! LSS 10 set "id_pad= !row_idx!"
+set "tmp_name=!fname_display!                                             "
+set "n_name=!tmp_name:~0,45!"
+set "tmp_arch=!this_arch!                    "
+set "n_arch=!tmp_arch:~0,20!"
+echo    !C_GRY![!C_KEY!!id_pad!!C_GRY!]!C_RST! !n_name! !C_LBL!!n_arch!!C_RST! !C_GRY![!st_f!!st_p!!st_s!!st_m!!st_h!!st_pt! !C_RST!^|!C_GRY! !st_oi! !st_os!]!C_RST!
+exit /b 0
+
 :CHECK_DIR
 if not exist "%~1" mkdir "%~1"
 exit /b
@@ -1837,4 +2108,4 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJlYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=dbc81f0867279dfd5733e52ed5c94dfc
+:: checksum:MD5=a4e6397bf8bc592075bde8bff3bbf911

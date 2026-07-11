@@ -30,6 +30,7 @@ set "BAT=_Builder.bat"
 set "PASS=0"
 set "FAIL=0"
 set "ROUTERFW_NO_CLS=1"
+set "ROUTERFW_TEST_MODE=1"
 set "LOG=%~dp0tester_log_win.md"
 set "TEMP_OUT=%~dp0tester_tmp_win_out.txt"
 
@@ -44,7 +45,8 @@ if not "%~1"=="" (
 )
 
 set "TEE_LINE=" & call :tee
-set "TEE_LINE=== CLI tester.bat (safe checks only) ===" & call :tee
+set "TEE_LINE=== CLI tester.bat (safe checks only) ==="
+call :tee
 set "TEE_LINE=" & call :tee
 
 rem --- Ожидание: exit 0 ---
@@ -61,6 +63,9 @@ call :run 0 "--lang=EN help" --lang=EN help
 call :run 0 "--lang=RU help" --lang=RU help
 call :run 0 "-l EN help" -l EN help
 call :run 0 "-l RU help" -l RU help
+call :run 0 "--runtime=auto help" --runtime=auto help
+call :run 0 "--runtime=docker help" --runtime=docker help
+call :run 0 "--runtime=podman help" --runtime=podman help
 
 rem --- Ожидание: exit 1 ---
 call :run 1 "build (no id)" build
@@ -74,11 +79,22 @@ call :run 1 "--state -> profile not found" --state
 call :run 1 "--lang=XX help" --lang=XX help
 call :run 1 "--lang help" --lang help
 call :run 1 "-l help" -l help
+call :run 1 "--runtime=bad help" --runtime=bad help
+call :run 1 "--runtime help" --runtime help
+call :run 1 "-r help" -r help
 call :run 1 "positional 999999" 999999
+call :run 1 "build path traversal" build ..\evil
+call :run 1 "src menuconfig no id" src menuconfig
+call :run 1 "ib menuconfig 1" ib menuconfig 1
 
 rem --- Регистр ---
 call :run 0 "HELP" HELP
 call :run 1 "BUILD no id" BUILD
+call :run_env 0 "build forced 0" 0
+call :run_env 1 "build forced 1" 1
+call :run_env 42 "build forced 42" 42
+call :run_env 0 "build-all forced 0" 0 build-all
+call :run_env 1 "build-all forced 1" 1 build-all
 
 rem ========== НЕ ТЕСТИРУЕМ (раскомментировать для полного прогона) ==========
 rem --- реальные сборки: долгие процессы, проверять вручную; N = существующий профиль ---
@@ -112,17 +128,24 @@ rem clean 1 N, clean 2 N ... → реальная очистка (не пров�
 
 rem --- Project Health Checks ---
 set "TEE_LINE=" & call :tee
-set "TEE_LINE=== Project Health Checks ===" & call :tee
+set "TEE_LINE=== Project Health Checks ==="
+call :tee
 set "TEE_LINE=" & call :tee
 
 rem ВНИМАНИЕ: Ниже исправленные регулярки (одна ^ вместо двух ^^) и полные имена команд PS
 call :run_ps 0 "Localization Keys" "$ProgressPreference='SilentlyContinue'; if ( (Compare-Object (gc system/lang/ru.env | Where-Object { $_ -match '^(L_|H_)' } | ForEach-Object { if ($_ -match '^([^=]+)=') { $Matches[1] } }) (gc system/lang/en.env | Where-Object { $_ -match '^(L_|H_)' } | ForEach-Object { if ($_ -match '^([^=]+)=') { $Matches[1] } })).Length -eq 0) { exit 0 } else { exit 1 }"
 call :run_ps 0 "BOM Signature" "$BOM_EXPECTED = @('system/create_profile.ps1', 'system/import_ipk.ps1'); $NO_BOM_EXPECTED = @('_Builder.sh', 'system/lang/ru.env', 'README.md'); $errors = 0; function Test-BOM($path) { $bytes = gc $path -Enc Byte -Total 3; return ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF); }; foreach ($f in $BOM_EXPECTED) { if (-not (Test-BOM $f)) { Write-Error ('BOM missing in ' + $f); $errors++; } }; foreach ($f in $NO_BOM_EXPECTED) { if (Test-BOM $f) { Write-Error ('Unexpected BOM in ' + $f); $errors++; } }; exit $errors"
+call :run_ps 0 "Version Sync" "$ver=((Get-Content system/version.env | Where-Object { $_ -match '^ROUTERFW_VERSION=' }) -replace '^ROUTERFW_VERSION=','').Trim(); $checks = @((Select-String -Path _Builder.sh -SimpleMatch ('VER_NUM=' + [char]34 + $ver + [char]34)), (Select-String -Path _Builder.bat -SimpleMatch ('set ' + [char]34 + 'VER_NUM=' + $ver + [char]34)), (Select-String -Path README.md -SimpleMatch ('v' + $ver + '+')), (Select-String -Path README.en.md -SimpleMatch ('v' + $ver + '+')), (Select-String -Path docs\\ARCHITECTURE_en.md -SimpleMatch ('Version: ' + $ver + '.')), (Select-String -Path docs\\ARCHITECTURE_ru.md -SimpleMatch ('Версия: ' + $ver + '.'))); if(($checks | Where-Object { $_ }).Count -eq 6){exit 0}else{exit 1}"
+call :run_ps 0 "No Global Docker Prune" "$paths = @('_Builder.sh','_Builder.bat') + (Get-ChildItem system -Filter *.sh | ForEach-Object FullName) + (Get-ChildItem system -Filter *.ps1 | ForEach-Object FullName); $pattern = ('docker(\.exe)? (network|volume|system) pr' + 'une|\$C_EXE .*system pr' + 'une|%%CONTAINER_EXE%% system pr' + 'une'); $matches = Select-String -Path $paths -Pattern $pattern; if($matches){$matches | ForEach-Object { $_.Path + ': ' + $_.Line }; exit 1} else {exit 0}"
+call :run_ps 0 "Runtime Env Override" "$out = cmd /v:on /c 'set ROUTERFW_RUNTIME=podman&& call _Builder.bat help' 2>&1; if(($out -join [Environment]::NewLine) -match 'podman \(TEST MODE\)'){exit 0}else{exit 1}"
+call :run_ps 0 "Runtime Explicit Failure" "$tmp = Join-Path $env:TEMP ('routerfw-test-' + [guid]::NewGuid()); New-Item -ItemType Directory -Path $tmp | Out-Null; try { @('@echo off','exit /b 1') | Set-Content -LiteralPath (Join-Path $tmp 'docker.cmd') -Encoding Ascii; $cmd = 'set ROUTERFW_TEST_MODE=&& set PATH=' + $tmp + ';%PATH%&& call _Builder.bat --runtime=docker help >nul 2>&1'; cmd /v:on /c $cmd; if($LASTEXITCODE -eq 1){exit 0}else{exit 1} } finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }"
 
 set "TEE_LINE=" & call :tee
-set "TEE_LINE=== Итого: !PASS! OK, !FAIL! FAIL ===" & call :tee
+set "TEE_LINE=== Итого: !PASS! OK, !FAIL! FAIL ==="
+call :tee
 set "TEE_LINE=" & call :tee
 if exist "%TEMP_OUT%" del "%TEMP_OUT%"
+if not "%FAIL%"=="0" exit /b 1
 exit /b 0
 
 :run
@@ -185,6 +208,37 @@ if "!EXPECT!"=="!GOT!" (
   set "LABEL_ECHO=!LABEL:>=^>!"
   set "LABEL_ECHO=!LABEL_ECHO:<=^<!"
   set "TEE_LINE=[FAIL] !LABEL_ECHO! ^(expected exit !EXPECT!, got !GOT!^)" & call :tee
+  set /a FAIL+=1
+)
+exit /b 0
+
+:run_env
+set "EXPECT=%~1"
+set "LABEL=%~2"
+set "FORCED_STATUS=%~3"
+set "RUN_CMD=%~4"
+if not defined RUN_CMD set "RUN_CMD=build 1"
+if defined TEST_ARGS (
+  set "SHOULD_RUN=0"
+  set "LABEL_NO_QUOTES=!LABEL:"=!"
+  for %%T in (!TEST_ARGS!) do (
+    set "CLEAN_T=%%~T"
+    if /i "!CLEAN_T!"=="!LABEL_NO_QUOTES!" set "SHOULD_RUN=1"
+  )
+  if "!SHOULD_RUN!"=="0" exit /b 0
+)
+set "TEE_LINE=" & call :tee
+set "TEE_LINE=--- Test: !LABEL! ---" & call :tee
+cmd /v:on /c "set ROUTERFW_TEST_BUILD_STATUS=%FORCED_STATUS%&& call %BAT% !RUN_CMD!" > "%TEMP_OUT%" 2>&1
+set "GOT=!errorlevel!"
+type "%TEMP_OUT%"
+type "%TEMP_OUT%" >> "%LOG%"
+set "TEE_LINE=" & call :tee
+if "!EXPECT!"=="!GOT!" (
+  set "TEE_LINE=[OK] !LABEL!" & call :tee
+  set /a PASS+=1
+) else (
+  set "TEE_LINE=[FAIL] !LABEL! ^(expected exit !EXPECT!, got !GOT!^)" & call :tee
   set /a FAIL+=1
 )
 exit /b 0

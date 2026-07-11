@@ -1,0 +1,74 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Bash syntax
+        run: for f in _Builder.sh tester.sh system/*.sh; do bash -n "$f"; done
+        shell: bash
+
+      - name: ShellCheck
+        run: shellcheck --severity=error _Builder.sh tester.sh system/*.sh
+
+      - name: Localization keys
+        run: diff <(grep -E '^(L_|H_)' system/lang/ru.env | sed 's/=.*//' | sort) <(grep -E '^(L_|H_)' system/lang/en.env | sed 's/=.*//' | sort)
+        shell: bash
+
+      - name: Version sync
+        run: |
+          ver=$(grep -E '^ROUTERFW_VERSION=' system/version.env | cut -d= -f2 | tr -d '\r')
+          grep -Fq "VER_NUM=\"$ver\"" _Builder.sh
+          grep -Fq "set \"VER_NUM=$ver\"" _Builder.bat
+          grep -Fq "v$ver+" README.md
+          grep -Fq "v$ver+" README.en.md
+          grep -Fq "Version: $ver." docs/ARCHITECTURE_en.md
+          grep -Fq "Версия: $ver." docs/ARCHITECTURE_ru.md
+        shell: bash
+
+      - name: BOM expectations
+        run: |
+          test_bom() { [[ "$(head -c 3 "$1")" == $'\xef\xbb\xbf' ]]; }
+          errors=0
+          for f in system/create_profile.ps1 system/import_ipk.ps1; do
+            test_bom "$f" || { echo "BOM missing in $f"; errors=1; }
+          done
+          for f in _Builder.sh system/lang/ru.env README.md; do
+            test_bom "$f" && { echo "Unexpected BOM in $f"; errors=1; }
+          done
+          exit "$errors"
+        shell: bash
+
+      - name: Forbid global docker prune
+        run: |
+          if grep -R -E 'docker(\.exe)? (network|volume|system) prune|\$C_EXE .*system prune|%CONTAINER_EXE% system prune' _Builder.sh _Builder.bat tester.sh tester.bat system/*.sh system/*.ps1; then
+            echo "Forbidden global docker prune command found"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Run bash tester
+        run: bash ./tester.sh
+        shell: bash
+        env:
+          ROUTERFW_TEST_MODE: "1"
+
+  windows-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run batch tester
+        run: .\tester.bat
+        shell: cmd
+        env:
+          ROUTERFW_TEST_MODE: "1"

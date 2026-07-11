@@ -7,6 +7,7 @@ SCRIPT_VERSION="1.0"
 # --- ПАРАМЕТРЫ ---
 PROFILE_ID="${1:-}"
 TARGET_ARCH="${2:-}"
+CONTAINER_RUNTIME_BIN="${ROUTERFW_CONTAINER_RUNTIME:-docker}"
 
 # --- ЦВЕТА ---
 C_CYAN='\033[0;36m'
@@ -126,7 +127,11 @@ for APK_PATH in "${APK_FILES[@]}"; do
     APK_ABS_DIR=$(cd "$(dirname "$APK_PATH")" && pwd)
     APK_FILE=$(basename "$APK_PATH")
 
-    ADBDUMP_OUT=$(docker run --rm -v "$APK_ABS_DIR:/data" alpine:latest apk adbdump "/data/$APK_FILE" 2>/dev/null)
+    MOUNT_ARG="$APK_ABS_DIR:/data:ro"
+    if [ "$CONTAINER_RUNTIME_BIN" = "podman" ]; then
+        MOUNT_ARG="$APK_ABS_DIR:/data:ro,z"
+    fi
+    ADBDUMP_OUT=$("$CONTAINER_RUNTIME_BIN" run --rm -v "$MOUNT_ARG" alpine:latest apk adbdump "/data/$APK_FILE" 2>/dev/null)
 
     if [ -z "$ADBDUMP_OUT" ]; then
         log_error "$T_PARSE_FAIL: $APK_NAME"
@@ -242,4 +247,4 @@ if [ "$WARNINGS" -gt 0 ]; then
     exit 1
 fi
 exit 0
-# checksum:MD5=a7bc6a1f4b9854c1c8e741fa0356992d
+# checksum:MD5=5963c86d9cf35380aa1d378a2ad053d6

@@ -4,19 +4,25 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-VER_NUM="4.6"
+VER_NUM="4.60"
+if [ -f "system/version.env" ]; then
+    loaded_ver=$(grep -E '^ROUTERFW_VERSION=' "system/version.env" | head -1 | cut -d'=' -f2- | tr -d '"'\''[:space:]\r')
+    [ -n "$loaded_ver" ] && VER_NUM="$loaded_ver"
+fi
 
 # Bootstrap — dict not yet available
 # Функция очистки при прерывании (Ctrl+C). Вызывается по SIGINT/SIGTERM в любой момент,
 # словарь может быть ещё не загружен — хардкод допустим.
 cleanup_exit() {
     echo -e "\n${C_ERR}[INTERRUPT]${C_RST} Cleaning up running containers..."
-    # Stop all running build containers to prevent orphans
-    release_locks "ALL"
-    # Remove the temporary Docker config
-    rm -rf "$PROJECT_DIR/.docker_tmp" 
+    if [[ "${RUNTIME_READY:-0}" == "1" ]] && declare -F release_locks >/dev/null 2>&1; then
+        release_locks "ALL"
+    fi
+    if [[ "${DOCKER_CONFIG_CREATED:-0}" == "1" ]]; then
+        rm -rf "$PROJECT_DIR/.docker_tmp"
+    fi
     echo -e "${C_RST}"
-    exit 1 # Exit with an error code to indicate abnormal termination
+    exit 130
 }
 trap cleanup_exit SIGINT SIGTERM
 
@@ -30,12 +36,12 @@ C_OK="${ESC}[92m"    # Bright Green
 C_ERR="${ESC}[91m"   # Bright Red
 C_RST="${ESC}[0m"    # Reset
 
-# === CLI: ключ языка в любой позиции; вырезаем его и собираем эффективный список (effective_1..effective_9), паритет с bat ===
-# Только ключ языка (без других аргументов) = меню с принудительным языком. Иначе = CLI, ключ вырезается.
+# === CLI: lang/runtime flags in any position; strip them and keep effective args ===
 effective_1="" effective_2="" effective_3="" effective_4="" effective_5="" effective_6="" effective_7="" effective_8="" effective_9=""
 _cli_args=("" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9")
 _idx=1
 _i=1
+RUNTIME_OVERRIDE="${ROUTERFW_RUNTIME:-auto}"
 while [ $_i -le 9 ]; do
     _arg="${_cli_args[$_i]}"
     [ -z "$_arg" ] && { ((_i++)); continue; }
@@ -52,6 +58,28 @@ while [ $_i -le 9 ]; do
         if [[ -n "$_next" && "${_next^^}" == "RU" ]]; then FORCE_LANG="RU"; ((_i+=2)); continue; fi
         if [[ -n "$_next" && "${_next^^}" == "EN" ]]; then FORCE_LANG="EN"; ((_i+=2)); continue; fi
         CLI_LANG_ERROR=1
+        [ -n "$_next" ] && ((_i++))
+        ((_i++))
+        continue
+    fi
+    if [[ "$_arg" == --runtime=* ]] && [ ${#_arg} -ge 11 ]; then
+        _val="${_arg:10}"
+        if [[ "$_val" =~ ^(auto|docker|podman)$ ]]; then
+            RUNTIME_OVERRIDE="${_val,,}"
+        else
+            CLI_RUNTIME_ERROR=1
+        fi
+        ((_i++))
+        continue
+    fi
+    if [[ "$_arg" == --runtime || "$_arg" == -r ]]; then
+        _next="${_cli_args[$((_i+1))]}"
+        if [[ -n "$_next" && "$_next" =~ ^(auto|docker|podman)$ ]]; then
+            RUNTIME_OVERRIDE="${_next,,}"
+            ((_i+=2))
+            continue
+        fi
+        CLI_RUNTIME_ERROR=1
         [ -n "$_next" ] && ((_i++))
         ((_i++))
         continue
@@ -149,6 +177,7 @@ LANG_FILE="system/lang/${SYS_LANG,,}.env"
 [ ! -f "$LANG_FILE" ] && LANG_FILE="system/lang/en.env"
 load_lang "$LANG_FILE"
 [ -n "${CLI_LANG_ERROR:-}" ] && echo -e "$L_CLI_ERR_LANG" && exit 1
+[ -n "${CLI_RUNTIME_ERROR:-}" ] && echo -e "${C_ERR}[CLI] Invalid --runtime value. Use auto, docker, or podman.${C_RST}" && exit 1
 
 # Language detector output — технический вывод детектора, хардкод допустим
 echo -e "${C_LBL}[INIT]${C_RST} Language detector (Weighted Detection)..."
@@ -176,14 +205,166 @@ export DOCKER_BUILDKIT=1
 BUILD_MODE="IMAGE"
 echo -e "$L_INIT_ENV"
 
-# === ФИКС DOCKER CREDENTIALS ===
-# Копируем реальный конфиг (с proxy/dns настройками), но убираем credsStore
-# чтобы не падала авторизация в безголовых окружениях
-export DOCKER_CONFIG_DIR="$PROJECT_DIR/.docker_tmp"
-mkdir -p "$DOCKER_CONFIG_DIR"
-_REAL_CFG="$HOME/.docker/config.json"
-if [ -f "$_REAL_CFG" ] && command -v python3 &>/dev/null; then
-    python3 -c "
+CONTAINER_RUNTIME=""
+CONTAINER_LABEL=""
+COMPOSE_LABEL=""
+CONTAINER_CMD=(docker)
+COMPOSE_CMD=(docker compose)
+COMPOSE_FILES=()
+PODMAN_MACHINE_HINT=""
+ROUTERFW_RUNTIME="${RUNTIME_OVERRIDE,,}"
+RUNTIME_READY=0
+DOCKER_CONFIG_CREATED=0
+
+compose_files_for() {
+    local base="$1"
+    COMPOSE_FILES=("$base")
+    if [ "$CONTAINER_RUNTIME" = "podman" ]; then
+        case "$base" in
+            system/docker-compose.yaml)
+                COMPOSE_FILES+=("system/podman-compose.yaml")
+                ;;
+            system/docker-compose-src.yaml)
+                COMPOSE_FILES+=("system/podman-compose-src.yaml")
+                ;;
+        esac
+    fi
+}
+
+run_compose() {
+    local base="$1"
+    shift
+    local compose_args=()
+    local f
+    compose_files_for "$base"
+    for f in "${COMPOSE_FILES[@]}"; do
+        compose_args+=(-f "$f")
+    done
+    "${COMPOSE_CMD[@]}" "${compose_args[@]}" "$@"
+}
+
+run_container() {
+    "${CONTAINER_CMD[@]}" "$@"
+}
+
+try_runtime_candidate() {
+    local candidate="$1"
+    case "$candidate" in
+        docker)
+            command -v docker >/dev/null 2>&1 || return 1
+            docker info >/dev/null 2>&1 || return 1
+            CONTAINER_RUNTIME="docker"
+            CONTAINER_LABEL="docker"
+            CONTAINER_CMD=(docker)
+            if docker compose version >/dev/null 2>&1; then
+                COMPOSE_CMD=(docker compose)
+                COMPOSE_LABEL="docker compose"
+            elif command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
+                COMPOSE_CMD=(docker-compose)
+                COMPOSE_LABEL="docker-compose"
+            else
+                return 1
+            fi
+            return 0
+            ;;
+        podman)
+            command -v podman >/dev/null 2>&1 || return 1
+            if ! podman info >/dev/null 2>&1; then
+                if command -v podman-machine >/dev/null 2>&1; then
+                    PODMAN_MACHINE_HINT=$(podman machine list 2>/dev/null | tr -d '\r' | grep -i "Currently stopped" | head -1)
+                elif podman machine list >/dev/null 2>&1; then
+                    PODMAN_MACHINE_HINT=$(podman machine list 2>/dev/null | tr -d '\r' | grep -i "Currently stopped" | head -1)
+                fi
+                return 1
+            fi
+            CONTAINER_RUNTIME="podman"
+            CONTAINER_LABEL="podman"
+            CONTAINER_CMD=(podman)
+            if podman compose version >/dev/null 2>&1; then
+                COMPOSE_CMD=(podman compose)
+                COMPOSE_LABEL="podman compose"
+            elif command -v podman-compose >/dev/null 2>&1 && podman-compose --version >/dev/null 2>&1; then
+                COMPOSE_CMD=(podman-compose)
+                COMPOSE_LABEL="podman-compose"
+            else
+                return 1
+            fi
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+resolve_runtime() {
+    if [[ -n "${ROUTERFW_TEST_MODE:-}" ]]; then
+        case "$ROUTERFW_RUNTIME" in
+            auto|docker)
+                CONTAINER_RUNTIME="docker"
+                CONTAINER_LABEL="docker"
+                CONTAINER_CMD=(docker)
+                COMPOSE_CMD=(docker compose)
+                COMPOSE_LABEL="docker compose"
+                return 0
+                ;;
+            podman)
+                CONTAINER_RUNTIME="podman"
+                CONTAINER_LABEL="podman"
+                CONTAINER_CMD=(podman)
+                COMPOSE_CMD=(podman compose)
+                COMPOSE_LABEL="podman compose"
+                return 0
+                ;;
+        esac
+    fi
+    case "$ROUTERFW_RUNTIME" in
+        auto)
+            try_runtime_candidate docker && return 0
+            try_runtime_candidate podman && return 0
+            ;;
+        docker|podman)
+            try_runtime_candidate "$ROUTERFW_RUNTIME" && return 0
+            ;;
+        *)
+            echo -e "${C_ERR}[CLI] Invalid runtime '${ROUTERFW_RUNTIME}'. Use auto, docker, or podman.${C_RST}"
+            exit 1
+            ;;
+    esac
+    echo -e "${C_ERR}[RUNTIME] Unable to initialize runtime '${ROUTERFW_RUNTIME}'.${C_RST}"
+    if [ -n "$PODMAN_MACHINE_HINT" ]; then
+        echo -e "${C_ERR}[RUNTIME] Podman machine appears stopped: ${PODMAN_MACHINE_HINT}${C_RST}"
+    fi
+    exit 1
+}
+
+fix_output_ownership() {
+    local output_dir="$1"
+    [ -d "$output_dir" ] || return 0
+    if [ "$CONTAINER_RUNTIME" = "docker" ]; then
+        run_container run --rm -v "$(pwd)/${output_dir#./}:/work" alpine chown -R "$(id -u):$(id -g)" /work
+    else
+        [ -w "$output_dir" ] || return 1
+        return 0
+    fi
+}
+
+resolve_runtime
+RUNTIME_READY=1
+export ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME"
+
+if [[ -n "${ROUTERFW_TEST_MODE:-}" ]]; then
+    echo -e "  ${C_GRY}-${C_RST} ${L_INIT_DOCKER_VER}: ${C_KEY}${CONTAINER_LABEL} (TEST MODE)${C_RST}"
+    echo -e "  ${C_GRY}-${C_RST} ${L_INIT_COMPOSE_VER}: ${C_KEY}${COMPOSE_LABEL} (TEST MODE)${C_RST}"
+else
+    # === ФИКС DOCKER CREDENTIALS ===
+    # Копируем реальный конфиг (с proxy/dns настройками), но убираем credsStore
+    # чтобы не падала авторизация в безголовых окружениях
+    if [ "$CONTAINER_RUNTIME" = "docker" ]; then
+        export DOCKER_CONFIG_DIR="$PROJECT_DIR/.docker_tmp"
+        mkdir -p "$DOCKER_CONFIG_DIR"
+        DOCKER_CONFIG_CREATED=1
+        _REAL_CFG="$HOME/.docker/config.json"
+        if [ -f "$_REAL_CFG" ] && command -v python3 &>/dev/null; then
+            python3 -c "
 import json, sys
 with open('$_REAL_CFG') as f:
     cfg = json.load(f)
@@ -191,45 +372,30 @@ cfg.pop('credsStore', None)
 cfg.pop('credHelpers', None)
 print(json.dumps(cfg))
 " > "$DOCKER_CONFIG_DIR/config.json" 2>/dev/null || echo '{"auths":{}}' > "$DOCKER_CONFIG_DIR/config.json"
-else
-    echo '{"auths":{}}' > "$DOCKER_CONFIG_DIR/config.json"
-fi
-export DOCKER_CONFIG="$DOCKER_CONFIG_DIR"
-
-# Предварительный пулл теперь точно сработает
-echo -e "${C_LBL}${L_INIT_PULL}${C_RST}"
-
-# Проверка Docker
-D_VER=$(docker --version 2>/dev/null)
-if [ -z "$D_VER" ]; then
-    echo -e "$L_ERR_DOCKER"
-    echo -e "$L_ERR_DOCKER_MSG"
-    read -p "$L_PRESS_ENTER" && exit 1
-fi
-echo -e "  ${C_GRY}-${C_RST} $D_VER"
-
-# Проверка Compose
-C_EXE="docker-compose"
-if ! command -v docker-compose &> /dev/null; then
-    if docker compose version &> /dev/null; then
-        C_EXE="docker compose"
-    else
-        echo -e "$L_ERR_COMPOSE"
-        read -p "$L_PRESS_ENTER" && exit 1
+        else
+            echo '{"auths":{}}' > "$DOCKER_CONFIG_DIR/config.json"
+        fi
+        export DOCKER_CONFIG="$DOCKER_CONFIG_DIR"
     fi
+
+    echo -e "${C_LBL}${L_INIT_PULL}${C_RST}"
+    D_VER="$("${CONTAINER_CMD[@]}" --version 2>/dev/null | head -1)"
+    C_VER="$("${COMPOSE_CMD[@]}" version 2>/dev/null | head -1)"
+    [ -z "$C_VER" ] && C_VER="$("${COMPOSE_CMD[@]}" --version 2>/dev/null | head -1)"
+    echo -e "  ${C_GRY}-${C_RST} ${L_INIT_DOCKER_VER}: ${C_VAL}${D_VER}${C_RST}"
+    echo -e "  ${C_GRY}-${C_RST} ${L_INIT_COMPOSE_VER}: ${C_VAL}${C_VER}${C_RST}"
+    echo -e "${L_INIT_USING} ${CONTAINER_LABEL} + ${COMPOSE_LABEL}"
 fi
-echo -e "${L_INIT_USING} $C_EXE"
 
 # Корень
 PROJECT_DIR=$(pwd)
 echo -e "  ${C_GRY}-${C_RST} ${L_INIT_ROOT}: ${C_VAL}${PROJECT_DIR}${C_RST}"
 
 echo -e "$L_INIT_NET"
-docker network prune --force >/dev/null 2>&1
 echo ""
 
 # === 0. РАСПАКОВКА ===
-if [ -f "_unpacker.sh" ]; then
+if [[ -z "${ROUTERFW_TEST_MODE:-}" ]] && [ -f "_unpacker.sh" ]; then
     echo -e "$L_INIT_UNPACK"
     bash _unpacker.sh
 fi
@@ -253,7 +419,7 @@ build_routine() {
     [[ "$BUILD_MODE" == "IMAGE" ]] && target_var="IMAGEBUILDER_URL" || target_var="SRC_BRANCH"
     
     local target_val=$(grep "$target_var=" "profiles/$conf_file" | cut -d'"' -f2 | tr -d '\r')
-    [ -z "$target_val" ] && { echo -e "${C_ERR}[SKIP] $target_var not found${C_RST}"; return; }
+    [ -z "$target_val" ] && { echo -e "${C_ERR}[SKIP] $target_var not found${C_RST}"; return 1; }
 
     # Строгая проверка Legacy, как в BAT файле
     local is_legacy=0
@@ -290,6 +456,16 @@ build_routine() {
 
     echo -e "${C_LBL}[BUILD]${C_RST} ${L_BUILD_TARGET} ${C_VAL}$p_id${C_RST}"
 
+    if [[ -n "${ROUTERFW_TEST_BUILD_STATUS:-}" ]]; then
+        local forced_status="${ROUTERFW_TEST_BUILD_STATUS}"
+        if [[ ! "$forced_status" =~ ^[0-9]+$ ]]; then
+            echo -e "${C_ERR}[TEST] Invalid ROUTERFW_TEST_BUILD_STATUS: ${forced_status}${C_RST}"
+            return 1
+        fi
+        echo -e "${C_GRY}[TEST] Forcing build status: ${forced_status}${C_RST}"
+        return "$forced_status"
+    fi
+
     # === APK SCANNER (только IB, только если есть .apk) ===
     if [ "$BUILD_MODE" == "IMAGE" ]; then
         if [ -d "$HOST_PKGS_DIR" ] && ls "$HOST_PKGS_DIR"/*.apk 1>/dev/null 2>&1; then
@@ -297,7 +473,7 @@ build_routine() {
             # Извлекаем SRC_ARCH из конфига (как в ручном режиме)
             local pkg_arch=$(grep "SRC_ARCH=" "profiles/$conf_file" | sed 's/SRC_ARCH=//;s/"//g' | tr -d '\r')
             export APK_SCANNER_LANG="$SYS_LANG"
-            bash "system/apk_scanner.sh" "$p_id" "$pkg_arch" || {
+            ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME" bash "system/apk_scanner.sh" "$p_id" "$pkg_arch" || {
                 echo -e "${C_YEL}[!] Scanner found issues. Continue anyway? [Y/n]: ${C_RST}"
                 read -r scan_choice
                 if [[ "$scan_choice" =~ ^[Nn]$ ]]; then
@@ -309,27 +485,34 @@ build_routine() {
     fi
 
     # 1. Принудительно удаляем контейнер (чистка хвостов)
-    docker rm -f "${proj_name}-${service}-1" >/dev/null 2>&1
+    run_container rm -f "${proj_name}-${service}-1" >/dev/null 2>&1
     # 2. Полный down с удалением анонимных томов (-v)
-    $C_EXE -f "$comp_file" -p "$proj_name" down --remove-orphans >/dev/null 2>&1
+    run_compose "$comp_file" -p "$proj_name" down --remove-orphans >/dev/null 2>&1
     # 3. Пауза (важно для Windows/WSL)
     sleep 2
 
     # 4. Запуск (up, как в .bat: контейнер [project]_[service]_1; --build — свежий образ с CA)
-    $C_EXE -f "$comp_file" -p "$proj_name" up --build --force-recreate --remove-orphans "$service"
+    run_compose "$comp_file" -p "$proj_name" up --build --force-recreate --remove-orphans "$service"
     # === ВАЖНО: ЗАПОМИНАЕМ РЕЗУЛЬТАТ СБОРКИ ===
     local build_status=$?
 
     # === FIX 3: ВОССТАНОВЛЕНИЕ ПРАВ (ext4/Linux) ===
-    if [ -d "$HOST_OUTPUT_DIR" ]; then
-        # Используем docker для смены прав, чтобы не требовать sudo от пользователя скрипта
-        docker run --rm -v "$(pwd)/${HOST_OUTPUT_DIR#./}:/work" alpine chown -R $(id -u):$(id -g) /work
+    if [ "$build_status" -eq 0 ] && [ -d "$HOST_OUTPUT_DIR" ]; then
+        # Для docker восстанавливаем владельца явно, для podman убеждаемся, что хостовый каталог доступен пользователю.
+        fix_output_ownership "$HOST_OUTPUT_DIR"
+        local ownership_status=$?
+        if [ "$ownership_status" -ne 0 ]; then
+            echo -e "${C_ERR}[ERROR] Failed to restore output ownership for ${HOST_OUTPUT_DIR}.${C_RST}"
+            build_status=$ownership_status
+        fi
     fi
 
     # 4. [NEW] "Stay in Container" logic (Only for Source Mode)
     if [ "$BUILD_MODE" == "SOURCE" ]; then
-        if [ $build_status -eq 0 ]; then
-            echo -e "\n${L_FINISHED}"
+        if [ "$build_status" -eq 0 ]; then
+            if [ "${CLI_CMD:-}" != "BUILD" ]; then
+                echo -e "\n${L_FINISHED}"
+            fi
 
             # === POST-BUILD: поиск *imagebuilder*.tar.zst и обновление IMAGEBUILDER_URL ===
             local ib_archive=""
@@ -341,8 +524,12 @@ build_routine() {
                 echo ""
                 echo -e "${C_KEY}${L_IB_UPDATE_ASK}${C_RST}"
                 echo -e "  ${C_GRY}${ib_archive}${C_RST}"
-                echo -e "${C_LBL}${L_IB_UPDATE_PROMPT}${C_RST} "
-                read -r ib_upd_choice
+                if [ -z "$CLI_CMD" ]; then
+                    echo -e "${C_LBL}${L_IB_UPDATE_PROMPT}${C_RST} "
+                    read -r ib_upd_choice
+                else
+                    ib_upd_choice="n"
+                fi
                 if [[ "$ib_upd_choice" =~ ^[Yy]$ ]]; then
                     local prof_path="profiles/${conf_file}"
                     local new_url_line="IMAGEBUILDER_URL=\"${ib_archive}\""
@@ -359,21 +546,139 @@ build_routine() {
                 fi
             fi
         else
-            echo -e "\n${L_BUILD_FATAL}"
+            if [ "${CLI_CMD:-}" != "BUILD" ]; then
+                echo -e "\n${L_BUILD_FATAL}"
+            fi
         fi
         
-        echo -e "${C_LBL}[SHELL]${C_RST} ${L_K_STAY}" 
-        read -r stay_choice
-        if [[ "$stay_choice" =~ ^[Yy]$ ]]; then
-            echo -e "${L_K_ENTER_SHELL}"
-            echo -e "${L_K_SHELL_H3}"
-            # Запускаем новый интерактивный контейнер
-            $C_EXE -f "$comp_file" -p "$proj_name" run --rm -it "$service" /bin/bash
+        if [ -z "$CLI_CMD" ]; then
+            echo -e "${C_LBL}[SHELL]${C_RST} ${L_K_STAY}"
+            read -r stay_choice
+            if [[ "$stay_choice" =~ ^[Yy]$ ]]; then
+                echo -e "${L_K_ENTER_SHELL}"
+                echo -e "${L_K_SHELL_H3}"
+                # Запускаем новый интерактивный контейнер
+                run_compose "$comp_file" -p "$proj_name" run --rm -it "$service" /bin/bash
+            fi
         fi
     fi
 
     # === ВОЗВРАЩАЕМ РЕАЛЬНЫЙ СТАТУС ===
     return $build_status    
+}
+
+is_safe_profile_token() {
+    local token="$1"
+    [[ -n "$token" ]] || return 1
+    [[ "$token" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    [[ "$token" != *..* ]] || return 1
+    [[ "$token" != */* ]] || return 1
+    [[ "$token" != *\\* ]] || return 1
+    return 0
+}
+
+validate_selected_conf() {
+    local conf_name="$1"
+    local selected_id="${conf_name%.conf}"
+    selected_id=$(printf '%s' "$selected_id" | tr -d '\r')
+    is_safe_profile_token "$selected_id" || {
+        echo -e "${L_CLI_ERR_PROFILE} $selected_id${C_RST}"
+        return 1
+    }
+    return 0
+}
+
+run_build_all() {
+    local interactive_mode="${1:-0}"
+    local overall_status=0
+    local success_profiles=()
+    local failed_profiles=()
+
+    if [ "$BUILD_MODE" == "SOURCE" ]; then
+        echo -e "${C_ERR}${L_WARN_MASS}${C_RST}"
+        [ "$interactive_mode" = "1" ] && read -p "$L_PRESS_ENTER"
+        return 1
+    fi
+
+    LOG_DIR="firmware_output/.build_logs/$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$LOG_DIR"
+
+    echo -e "\n${C_VAL}${L_PARALLEL_BUILDS_START}${C_RST} ${C_LBL}$LOG_DIR${C_RST}\n"
+
+    local pids=()
+    declare -A pid_map
+    declare -A start_time_map
+
+    printf "    %-65s | %s\n" "${C_GRY}${L_LOG_HEAD_PROF}" "${L_LOG_HEAD_FILE}${C_RST}"
+    printf "    %s\n" "${C_GRY}--------------------------------------------------------------------------------------------------------------------${C_RST}"
+
+    for p in "${profiles[@]}"; do
+        local p_id
+        p_id=$(echo "${p%.conf}" | tr -d '\r')
+        local log_file="$LOG_DIR/${p_id}.log"
+        printf "    %-65s | %s\n" "${C_KEY}${L_LOG_START} $p_id${C_RST}" "${C_LBL}${log_file}${C_RST}"
+        build_routine "$p" > "$log_file" 2>&1 &
+        local pid=$!
+        pids+=("$pid")
+        pid_map[$pid]="$p_id"
+        start_time_map[$pid]=$(date +%s)
+        sleep 1
+    done
+
+    echo -e "\n${C_OK}${L_ALL_BUILDS_LAUNCHED}${C_RST}"
+    echo -e "${C_LBL}${L_MONITOR_HINT}${C_RST}\n"
+
+    local running_pids=("${pids[@]}")
+    local spinner=("/" "-" "\\" "|")
+    local spin_idx=0
+    while [ ${#running_pids[@]} -gt 0 ]; do
+        local still_running=()
+        for pid in "${running_pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                still_running+=("$pid")
+            else
+                local end_ts start_ts duration dm ds time_str
+                end_ts=$(date +%s)
+                start_ts=${start_time_map[$pid]}
+                duration=$((end_ts - start_ts))
+                dm=$((duration / 60))
+                ds=$((duration % 60))
+                time_str="${dm}m ${ds}s"
+                printf "\r%120s\r" " "
+                if wait "$pid"; then
+                    success_profiles+=("${pid_map[$pid]}")
+                    printf "${C_OK}${L_LOG_OK_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
+                else
+                    overall_status=1
+                    failed_profiles+=("${pid_map[$pid]}")
+                    printf "${C_ERR}${L_LOG_FAIL_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
+                fi
+            fi
+        done
+        running_pids=("${still_running[@]}")
+        if [ ${#running_pids[@]} -gt 0 ]; then
+            local running_names=""
+            for pid in "${running_pids[@]}"; do
+                running_names+="${pid_map[$pid]} "
+            done
+            [ ${#running_names} -gt 60 ] && running_names="${running_names:0:57}..."
+            printf "\r${C_LBL}[%s]${C_RST} ${L_WAITING_FOR_BUILDS} (%d left): ${C_VAL}%-60s${C_RST}" "${spinner[$spin_idx]}" "${#running_pids[@]}" "$running_names"
+        fi
+        sleep 0.5
+        spin_idx=$(((spin_idx + 1) % 4))
+    done
+
+    printf "\r%120s\r" " "
+    [ ${#success_profiles[@]} -gt 0 ] && echo -e "${C_OK}[OK]${C_RST} Success: ${success_profiles[*]}"
+    [ ${#failed_profiles[@]} -gt 0 ] && echo -e "${C_ERR}[FAIL]${C_RST} Failed: ${failed_profiles[*]}"
+
+    if [ "$overall_status" -eq 0 ]; then
+        echo -e "${C_OK}${L_ALL_BUILDS_DONE}${C_RST}"
+    else
+        echo -e "${L_BUILD_FATAL} ${L_EXIT_CODE_LABEL:-Exit code:} 1"
+    fi
+    [ "$interactive_mode" = "1" ] && read -p "$L_DONE_MENU"
+    return "$overall_status"
 }
 
 # --- Checksum (MD5) — формат как в unpacker ---
@@ -699,7 +1004,7 @@ EOF
     # 4. ФАКТИЧЕСКИЙ ЗАПУСК КОНТЕЙНЕРА
     local run_cmd="chown -R build:build /home/build/openwrt && chown build:build /output && tr -d '\r' < /output/_menuconfig_runner.sh > /tmp/r.sh && chmod +x /tmp/r.sh && sudo -E -u build bash /tmp/r.sh"
     
-    $C_EXE -f system/docker-compose-src.yaml -p "srcbuild_$p_id" run --rm -it "$service" /bin/bash -c "$run_cmd"
+    run_compose "system/docker-compose-src.yaml" -p "srcbuild_$p_id" run --rm -it "$service" /bin/bash -c "$run_cmd"
     
     # --- БЛОК ПОСТ-ОБРАБОТКИ КОНФИГУРАЦИИ ---
     if [ -f "$out_path/manual_config" ]; then
@@ -756,10 +1061,10 @@ release_locks() {
     if [ "$p_id" == "ALL" ]; then
         # Удаляем все контейнеры, чьи имена начинаются с префиксов build_ или srcbuild_
         # Это покрывает все возможные контейнеры сборки, созданные docker-compose
-        docker ps -aq --filter "name=^build_" --filter "name=^srcbuild_" | xargs -r docker rm -f
+        run_container ps -aq --filter "name=^build_" --filter "name=^srcbuild_" | xargs -r "${CONTAINER_CMD[@]}" rm -f
     else
         # Удаляем контейнеры для конкретного профиля, используя оба возможных префикса
-        docker ps -aq --filter "name=^build_${p_id}" --filter "name=^srcbuild_${p_id}" | xargs -r docker rm -f
+        run_container ps -aq --filter "name=^build_${p_id}" --filter "name=^srcbuild_${p_id}" | xargs -r "${CONTAINER_CMD[@]}" rm -f
     fi
 }
 
@@ -771,11 +1076,12 @@ cleanup_logic() {
 
     if [ "$p_id" == "ALL" ]; then
         # FIX: Ищем тома, заканчивающиеся на _type, независимо от префикса (build_ или srcbuild_)
-        local volumes_to_delete=$(docker volume ls -q | grep -E "_(srcbuild|build)_.*_${type}$")
+        local volumes_to_delete
+        volumes_to_delete=$(run_container volume ls -q | grep -E "_(srcbuild|build)_.*_${type}$")
         # Альтернатива, если grep сложный: grep -E ".*_${type}$" (но это опаснее)
         
         if [ -n "$volumes_to_delete" ]; then
-            echo "$volumes_to_delete" | xargs -r docker volume rm
+            echo "$volumes_to_delete" | xargs -r "${CONTAINER_CMD[@]}" volume rm
             echo -e "  ${L_R_OK}"
         else
             echo -e "  ${L_R_NOTHING}"
@@ -786,14 +1092,14 @@ cleanup_logic() {
         local vol_img="build_${p_id}_${type}"
         
         # Удаляем srcbuild вариант
-        if docker volume inspect "$vol_src" >/dev/null 2>&1; then
-            docker volume rm "$vol_src" >/dev/null 2>&1
+        if run_container volume inspect "$vol_src" >/dev/null 2>&1; then
+            run_container volume rm "$vol_src" >/dev/null 2>&1
             echo -e "  ${L_VOL_DEL} '$vol_src'."
         fi
         
         # Удаляем build вариант
-        if docker volume inspect "$vol_img" >/dev/null 2>&1; then
-            docker volume rm "$vol_img" >/dev/null 2>&1
+        if run_container volume inspect "$vol_img" >/dev/null 2>&1; then
+            run_container volume rm "$vol_img" >/dev/null 2>&1
             echo -e "  ${L_VOL_DEL} '$vol_img'."
         fi
     fi
@@ -812,7 +1118,7 @@ do_cleanup_by_type() {
                 export HOST_FILES_DIR="$(pwd)/custom_files/$target_id"
                 export HOST_OUTPUT_DIR="$(pwd)/firmware_output/sourcebuilder/$target_id"
                 export HOST_PKGS_DIR="$(pwd)/src_packages/$target_id"
-                $C_EXE -f system/docker-compose-src.yaml -p "srcbuild_$target_id" run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && if [ -f Makefile ]; then echo '[CMD] make clean'; make clean; echo '[DONE] Clean Completed'; else echo '[WARN] Makefile not found'; fi"
+                run_compose "system/docker-compose-src.yaml" -p "srcbuild_$target_id" run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && if [ -f Makefile ]; then echo '[CMD] make clean'; make clean; echo '[DONE] Clean Completed'; else echo '[WARN] Makefile not found'; fi"
                 ;;
             2) cleanup_logic "src-workdir" "$target_id" ;;
             3) cleanup_logic "src-dl-cache" "$target_id" ;;
@@ -823,7 +1129,7 @@ do_cleanup_by_type() {
                 export HOST_FILES_DIR="$(pwd)/custom_files/$target_id"
                 export HOST_OUTPUT_DIR="$(pwd)/firmware_output/sourcebuilder/$target_id"
                 export HOST_PKGS_DIR="$(pwd)/src_packages/$target_id"
-                $C_EXE -f system/docker-compose-src.yaml -p "srcbuild_$target_id" run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && rm -rf tmp/ && echo '[DONE] Index/Tmp cleaned'"
+                run_compose "system/docker-compose-src.yaml" -p "srcbuild_$target_id" run --rm builder-src-openwrt /bin/bash -c "cd /home/build/openwrt && rm -rf tmp/ && echo '[DONE] Index/Tmp cleaned'"
                 ;;
             6)
                 cleanup_logic "src-workdir" "$target_id"
@@ -855,9 +1161,8 @@ cleanup_wizard_cli() {
     local c_choice="$1"
     local t_choice="$2"
     if [ "$c_choice" == "9" ]; then
-        echo -e "\n$L_PRUNE_RUN"
-        docker system prune -f
-        return 0
+        echo -e "\n${C_ERR}[CLI] Global Docker prune is disabled in non-interactive mode.${C_RST}"
+        return 1
     fi
     local target_id="ALL"
     if [ -n "$t_choice" ] && [[ "${t_choice^^}" != "A" ]]; then
@@ -905,8 +1210,7 @@ cleanup_wizard() {
     
     # Обработка глобального Prune (пункт 9)
     if [ "$c_choice" == "9" ]; then
-        echo -e "\n$L_PRUNE_RUN"
-        docker system prune -f
+        echo -e "\n${C_ERR}[WARN] Global Docker prune has been disabled for safety.${C_RST}"
         read -p "$L_PRESS_ENTER"
         return
     fi
@@ -1073,8 +1377,8 @@ if [ -n "$p1" ]; then
     fi
     _cmd="${c1^^}"
     case "$_cmd" in
-        BUILD|B)         CLI_CMD="BUILD";     CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
-        BUILD_ALL|ALL|A) CLI_CMD="BUILD_ALL"; CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        BUILD|B)          CLI_CMD="BUILD";     CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
+        BUILD-ALL|BUILD_ALL|ALL|A) CLI_CMD="BUILD_ALL"; CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
         EDIT|E)          CLI_CMD="EDIT";      CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
         MENUCONFIG|K)    CLI_CMD="MENUCONFIG"; CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
         IMPORT|I)        CLI_CMD="IMPORT";    CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
@@ -1093,21 +1397,34 @@ fi
 resolve_profile_by_id() {
     SELECTED_CONF=""
     local arg="$1"
-    local arg_trim="${arg//[[:space:]]/}"
+    local arg_trim
+    arg_trim=$(printf '%s' "$arg" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     if [ -z "$arg_trim" ]; then
         echo -e "$L_CLI_ERR_PROFILE_REQUIRED"
         return 1
     fi
-    if [[ "$arg" =~ ^[0-9]+$ ]] && [ "$arg" -ge 1 ] && [ "$arg" -le "$count" ]; then
-        SELECTED_CONF="${profiles[$arg]}"
+    if [[ "$arg_trim" =~ ^[0-9]+$ ]] && [ "$arg_trim" -ge 1 ] && [ "$arg_trim" -le "$count" ]; then
+        SELECTED_CONF="${profiles[$arg_trim]}"
+        validate_selected_conf "$SELECTED_CONF" || {
+            SELECTED_CONF=""
+            return 1
+        }
         return 0
+    fi
+    if ! is_safe_profile_token "$arg_trim"; then
+        echo -e "${L_CLI_ERR_PROFILE} $arg${C_RST}"
+        return 1
     fi
     local i
     for ((i=1; i<=count; i++)); do
         local pbase="${profiles[$i]%.conf}"
         pbase=$(echo "$pbase" | tr -d '\r')
-        if [[ "${pbase^^}" == "${arg^^}" ]]; then
+        if [[ "${pbase^^}" == "${arg_trim^^}" ]]; then
             SELECTED_CONF="${profiles[$i]}"
+            validate_selected_conf "$SELECTED_CONF" || {
+                SELECTED_CONF=""
+                return 1
+            }
             return 0
         fi
     done
@@ -1124,6 +1441,7 @@ dispatch_cli() {
             echo -e "${C_LBL}${L_CLI_HELP_VER}${VER_NUM} ${L_CLI_HELP_HEAD/"_Builder.bat"/"$script_name"}${C_RST}"
             echo ""
             echo -e "${C_GRY}${L_CLI_LANG_KEY}${C_RST}"
+            echo -e "${C_GRY}${L_CLI_RUNTIME_KEY}${C_RST}"
             echo -e "${C_GRY}${L_CLI_MODE_PREFIX}${C_RST}"
             echo ""
             printf "  %-20s %-22s %s\n" "build, b" "<id>" "$L_CLI_DESC_BUILD"
@@ -1200,15 +1518,20 @@ dispatch_cli() {
             exit 0
             ;;
         BUILD)
-            trim1="${CLI_ARG1//[[:space:]]/}"
+            trim1=$(printf '%s' "$CLI_ARG1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
             if [ -z "$trim1" ]; then
                 echo -e "$L_CLI_ERR_BUILD_NO_ID"
                 exit 1
             fi
             resolve_profile_by_id "$CLI_ARG1" || exit 1
             build_routine "$SELECTED_CONF"
-            echo -e "$L_RUNNING"
-            exit 0
+            build_status=$?
+            if [ "$build_status" -eq 0 ]; then
+                echo -e "$L_FINISHED"
+            else
+                echo -e "${L_BUILD_FATAL} ${L_EXIT_CODE_LABEL:-Exit code:} $build_status"
+            fi
+            exit "$build_status"
             ;;
         EDIT)
             if [ -z "$CLI_ARG1" ]; then
@@ -1288,7 +1611,7 @@ dispatch_cli() {
             local p_id="${SELECTED_CONF%.conf}"
             p_id=$(echo "$p_id" | tr -d '\r')
             local p_arch=$(grep "SRC_ARCH=" "profiles/$SELECTED_CONF" | cut -d'"' -f2 | tr -d '\r')
-            bash system/import_ipk.sh "$p_id" "$p_arch"
+            ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME" bash system/import_ipk.sh "$p_id" "$p_arch"
             exit 0
             ;;
         CLEAN)
@@ -1344,10 +1667,14 @@ while true; do
 
     for f in profiles/*.conf; do
         [ -e "$f" ] || continue
-        ((count++))
         p_name=$(basename "$f")
         # Очищаем имя от возможных невидимых символов Windows (\r)
         p_id=$(echo "${p_name%.conf}" | tr -d '\r')
+        if ! is_safe_profile_token "$p_id"; then
+            echo -e "${C_ERR}[WARN] Skipping unsafe profile filename: ${p_name}${C_RST}"
+            continue
+        fi
+        ((count++))
         profiles[$count]=$p_name
         
         # --- [БЫСТРАЯ ИНИЦИАЛИЗАЦИЯ] ---
@@ -1413,67 +1740,8 @@ while true; do
     # === CLI: диспетчеризация (после построения списка профилей) ===
     if [ -n "$CLI_CMD" ]; then
         if [ "$CLI_CMD" = "BUILD_ALL" ]; then
-            if [ "$BUILD_MODE" == "SOURCE" ]; then
-                echo -e "${C_ERR}${L_WARN_MASS}${C_RST}"
-                exit 1
-            fi
-            LOG_DIR="firmware_output/.build_logs/$(date +%Y%m%d-%H%M%S)"
-            mkdir -p "$LOG_DIR"
-            echo -e "\n${C_VAL}${L_PARALLEL_BUILDS_START}${C_RST} ${C_LBL}$LOG_DIR${C_RST}\n"
-            pids=()
-            declare -A pid_map
-            declare -A start_time_map
-            printf "    %-65s | %s\n" "${C_GRY}${L_LOG_HEAD_PROF}" "${L_LOG_HEAD_FILE}${C_RST}"
-            printf "    %s\n" "${C_GRY}--------------------------------------------------------------------------------------------------------------------${C_RST}"
-            for p in "${profiles[@]}"; do
-                p_id=$(echo "${p%.conf}" | tr -d '\r')
-                log_file="$LOG_DIR/${p_id}.log"
-                printf "    %-65s | %s\n" "${C_KEY}${L_LOG_START} $p_id${C_RST}" "${C_LBL}${log_file}${C_RST}"
-                build_routine "$p" > "$log_file" 2>&1 &
-                pid=$!
-                pids+=($pid)
-                pid_map[$pid]="$p_id"
-                start_time_map[$pid]=$(date +%s)
-                sleep 1
-            done
-            echo -e "\n${C_OK}${L_ALL_BUILDS_LAUNCHED}${C_RST}"
-            echo -e "${C_LBL}${L_MONITOR_HINT}${C_RST}\n"
-            running_pids=("${pids[@]}")
-            spinner=("/" "-" "\\" "|")
-            spin_idx=0
-            while [ ${#running_pids[@]} -gt 0 ]; do
-                still_running=()
-                for pid in "${running_pids[@]}"; do
-                    if kill -0 "$pid" 2>/dev/null; then
-                        still_running+=("$pid")
-                    else
-                        end_ts=$(date +%s)
-                        start_ts=${start_time_map[$pid]}
-                        duration=$((end_ts - start_ts))
-                        dm=$((duration / 60))
-                        ds=$((duration % 60))
-                        time_str="${dm}m ${ds}s"
-                        printf "\r%120s\r" " "
-                        if ! wait "$pid"; then
-                            printf "${C_ERR}${L_LOG_FAIL_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
-                        else
-                            printf "${C_OK}${L_LOG_OK_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
-                        fi
-                    fi
-                done
-                running_pids=("${still_running[@]}")
-                if [ ${#running_pids[@]} -gt 0 ]; then
-                    running_names=""
-                    for pid in "${running_pids[@]}"; do running_names+="${pid_map[$pid]} "; done
-                    [ ${#running_names} -gt 60 ] && running_names="${running_names:0:57}..."
-                    printf "\r${C_LBL}[%s]${C_RST} ${L_WAITING_FOR_BUILDS} (%d left): ${C_VAL}%-60s${C_RST}" "${spinner[$spin_idx]}" "${#running_pids[@]}" "$running_names"
-                fi
-                sleep 0.5
-                spin_idx=$(( (spin_idx+1) % 4 ))
-            done
-            printf "\r%120s\r" " "
-            echo -e "${C_OK}${L_ALL_BUILDS_DONE}${C_RST}"
-            exit 0
+            run_build_all 0
+            exit $?
         fi
         dispatch_cli
     fi
@@ -1538,7 +1806,7 @@ while true; do
                 sel_arch=$(grep "SRC_ARCH=" "profiles/$sel_conf" | sed 's/SRC_ARCH=//;s/"//g' | tr -d '\r')
                 echo ""
                 export APK_SCANNER_LANG="$SYS_LANG"
-                bash "system/apk_scanner.sh" "$sel_id" "$sel_arch" || true
+                ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME" bash "system/apk_scanner.sh" "$sel_id" "$sel_arch" || true
                 echo ""
             fi
             pause
@@ -1621,110 +1889,7 @@ while true; do
             fi 
             ;;
         A)
-            # Массовая сборка с параллельным выполнением и логированием
-            if [ "$BUILD_MODE" == "SOURCE" ]; then
-                echo -e "${C_ERR}${L_WARN_MASS}${C_RST}"
-                read -p "$L_PRESS_ENTER"
-            fi
-            
-            LOG_DIR="firmware_output/.build_logs/$(date +%Y%m%d-%H%M%S)"
-            mkdir -p "$LOG_DIR"
-            
-            echo -e "\n${C_VAL}${L_PARALLEL_BUILDS_START}${C_RST} ${C_LBL}$LOG_DIR${C_RST}\n"
-            
-            pids=()
-            # ВАЖНО: Объявляем ассоциативные массивы для имен и ВРЕМЕНИ
-            declare -A pid_map
-            declare -A start_time_map
-            
-            printf "    %-65s | %s\n" "${C_GRY}${L_LOG_HEAD_PROF}" "${L_LOG_HEAD_FILE}${C_RST}"
-            printf "    %s\n" "${C_GRY}--------------------------------------------------------------------------------------------------------------------${C_RST}"
-            
-            for p in "${profiles[@]}"; do
-                # Очищаем имя от \r и расширения
-                p_id=$(echo "${p%.conf}" | tr -d '\r')
-                log_file="$LOG_DIR/${p_id}.log"
-                
-                printf "    %-65s | %s\n" "${C_KEY}${L_LOG_START} $p_id${C_RST}" "${C_LBL}${log_file}${C_RST}"
-                
-                # Запускаем сборку в фоне
-                build_routine "$p" > "$log_file" 2>&1 &
-                
-                # Запоминаем PID
-                pid=$!
-                pids+=($pid)
-                
-                # Запоминаем Имя и ВРЕМЯ СТАРТА (Unix timestamp)
-                pid_map[$pid]="$p_id"
-                start_time_map[$pid]=$(date +%s)
-
-                # Задержка для Docker Desktop
-                sleep 1
-            done
-            
-            echo -e "\n${C_OK}${L_ALL_BUILDS_LAUNCHED}${C_RST}"
-            echo -e "${C_LBL}${L_MONITOR_HINT}${C_RST}\n"
-            
-            running_pids=("${pids[@]}")
-            spinner=("/" "-" "\\" "|")
-            spin_idx=0
-            
-            while [ ${#running_pids[@]} -gt 0 ]; do
-                still_running=()
-                
-                for pid in "${running_pids[@]}"; do
-                    if kill -0 "$pid" 2>/dev/null; then
-                        # Процесс жив
-                        still_running+=("$pid")
-                    else
-                        # Процесс завершился
-                        
-                        # --- РАСЧЕТ ВРЕМЕНИ ---
-                        end_ts=$(date +%s)
-                        start_ts=${start_time_map[$pid]}
-                        duration=$((end_ts - start_ts))
-                        
-                        # Форматируем в красивый вид (Xm Ys)
-                        dm=$((duration / 60))
-                        ds=$((duration % 60))
-                        time_str="${dm}m ${ds}s"
-                        # ----------------------
-
-                        printf "\r%120s\r" " " 
-                        
-                        if ! wait "$pid"; then
-                            # ОШИБКА (Показываем время, потраченное впустую)
-                            printf "${C_ERR}${L_LOG_FAIL_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
-                        else
-                            # УСПЕХ (Показываем время выполнения)
-                            printf "${C_OK}${L_LOG_OK_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
-                        fi
-                    fi
-                done
-
-                # Обновляем список живых PID
-                running_pids=("${still_running[@]}")
-                
-                # Рисуем спиннер
-                if [ ${#running_pids[@]} -gt 0 ]; then
-                    running_names=""
-                    for pid in "${running_pids[@]}"; do
-                        running_names+="${pid_map[$pid]} "
-                    done
-                    if [ ${#running_names} -gt 60 ]; then
-                        running_names="${running_names:0:57}..."
-                    fi
-                    
-                    printf "\r${C_LBL}[%s]${C_RST} ${L_WAITING_FOR_BUILDS} (%d left): ${C_VAL}%-60s${C_RST}" "${spinner[$spin_idx]}" "${#running_pids[@]}" "$running_names"
-                fi
-                
-                sleep 0.5
-                spin_idx=$(( (spin_idx+1) % 4 ))
-            done
-            
-            printf "\r%120s\r" " "
-            echo -e "${C_OK}${L_ALL_BUILDS_DONE}${C_RST}"
-            read -p "$L_DONE_MENU"
+            run_build_all 1
             ;;
         K)
             if [ "$BUILD_MODE" == "SOURCE" ]; then
@@ -1771,7 +1936,7 @@ while true; do
                     p_id="${profiles[$i_id]%.conf}"
                     # FIX: Добавили tr -d '\r' для защиты от Windows-символов
                     p_arch=$(grep "SRC_ARCH=" "profiles/${profiles[$i_id]}" | cut -d'"' -f2 | tr -d '\r')
-                    bash system/import_ipk.sh "$p_id" "$p_arch"
+                    ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME" bash system/import_ipk.sh "$p_id" "$p_arch"
                 fi
             fi ;;
         W)
@@ -1789,4 +1954,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=d7e564be38e208555fc5ba6c33197533
+# checksum:MD5=568e391597c2ae46332ab3f0dc58d69c

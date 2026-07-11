@@ -1,0 +1,23 @@
+# file: system/podman-compose-src.yaml
+services:
+  builder-src-openwrt:
+    userns_mode: keep-id
+    volumes:
+      - ../profiles:/profiles:ro,z
+      - ../${HOST_PKGS_DIR}:/input_packages:z
+      - ../${HOST_PATCHES_DIR}:/patches:z
+      - ../${HOST_FILES_DIR}:/overlay_files:z
+      - ../${HOST_OUTPUT_DIR}:/output:z
+      - ./openssl.cnf:/openssl.cnf:ro,z
+      - ./src_builder.sh:/src_builder.sh:ro,z
+
+  builder-src-oldwrt:
+    userns_mode: keep-id
+    volumes:
+      - ../profiles:/profiles:ro,z
+      - ../${HOST_PKGS_DIR}:/input_packages:z
+      - ../${HOST_PATCHES_DIR}:/patches:z
+      - ../${HOST_FILES_DIR}:/overlay_files:z
+      - ../${HOST_OUTPUT_DIR}:/output:z
+      - ./openssl.cnf:/openssl.cnf:ro,z
+      - ./src_builder.sh:/src_builder.sh:ro,z
