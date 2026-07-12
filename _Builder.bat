@@ -1480,11 +1480,15 @@ if defined ROUTERFW_TEST_MODE (
 )
 if /i "%ROUTERFW_RUNTIME%"=="docker" (
     call :TRY_RUNTIME_DOCKER
-    exit /b !errorlevel!
+    set "runtime_rc=!errorlevel!"
+    if not "!runtime_rc!"=="0" call :PRINT_RUNTIME_ERRORS
+    exit /b !runtime_rc!
 )
 if /i "%ROUTERFW_RUNTIME%"=="podman" (
     call :TRY_RUNTIME_PODMAN
-    exit /b !errorlevel!
+    set "runtime_rc=!errorlevel!"
+    if not "!runtime_rc!"=="0" call :PRINT_RUNTIME_ERRORS
+    exit /b !runtime_rc!
 )
 if /i not "%ROUTERFW_RUNTIME%"=="auto" (
     echo %C_ERR%[CLI] Invalid --runtime value. Use auto, docker, or podman.%C_RST%
@@ -1494,10 +1498,14 @@ call :TRY_RUNTIME_DOCKER
 if not errorlevel 1 exit /b 0
 call :TRY_RUNTIME_PODMAN
 if not errorlevel 1 exit /b 0
+call :PRINT_RUNTIME_ERRORS
+exit /b 1
+
+:PRINT_RUNTIME_ERRORS
 if defined RUNTIME_ERROR_MESSAGE_1 echo %RUNTIME_ERROR_MESSAGE_1%
 if defined RUNTIME_ERROR_MESSAGE_2 echo %RUNTIME_ERROR_MESSAGE_2%
 if defined RUNTIME_ERROR_MESSAGE_3 echo %RUNTIME_ERROR_MESSAGE_3%
-exit /b 1
+exit /b 0
 
 :TRY_RUNTIME_DOCKER
 docker info >nul 2>&1
@@ -2271,4 +2279,4 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJlYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=9de3f125ccb8e97ca1b22477c21e114b
+:: checksum:MD5=1c35964b72d58cb79d53c377a743fbe8

@@ -8,7 +8,7 @@ jobs:
   linux-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v5
 
       - name: Set executable permissions
         shell: bash
@@ -72,7 +72,7 @@ jobs:
 
       - name: Upload Linux tester log
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: tester-log-linux
           path: tester_log_lin.md
@@ -80,7 +80,7 @@ jobs:
   windows-tests:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v5
 
       - name: Run batch tester
         run: .\tester.bat
@@ -90,15 +90,52 @@ jobs:
 
       - name: Upload Windows tester log
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: tester-log-windows
           path: tester_log_win.md
 
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set executable permissions
+        run: chmod +x _Builder.sh _packer.sh tester.sh
+        shell: bash
+
+      - name: Docker compose smoke
+        run: |
+          docker info
+          docker compose -f system/docker-compose.yaml config >/dev/null
+          docker compose -f system/docker-compose-src.yaml config >/dev/null
+          ROUTERFW_RUNTIME=docker bash ./_Builder.sh help >/dev/null
+
+          rm -rf firmware_output/imagebuilder/docker-smoke firmware_output/sourcebuilder/docker-smoke
+          mkdir -p firmware_output/imagebuilder/docker-smoke firmware_output/sourcebuilder/docker-smoke
+
+          SELECTED_CONF=tplink_841n_v9_190710_full.conf HOST_OUTPUT_DIR=./firmware_output/imagebuilder/docker-smoke HOST_PKGS_DIR=./custom_packages/tplink_841n_v9_190710_full HOST_FILES_DIR=./custom_files/tplink_841n_v9_190710_full docker compose -f system/docker-compose.yaml -p docker-smoke-ib run --build --rm builder-oldwrt sh -lc '
+            id
+            touch /builder_workspace/.routerfw-write-test
+            touch /output/imagebuilder/docker-smoke/.routerfw-output-test
+          '
+          test -f firmware_output/imagebuilder/docker-smoke/.routerfw-output-test
+
+          SELECTED_CONF=tplink_841n_v9_190710_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/docker-smoke HOST_PKGS_DIR=./src_packages/tplink_841n_v9_190710_full HOST_PATCHES_DIR=./custom_patches/tplink_841n_v9_190710_full HOST_FILES_DIR=./custom_files/tplink_841n_v9_190710_full docker compose -f system/docker-compose-src.yaml -p docker-smoke-src run --build --rm builder-src-oldwrt sh -lc '
+            id
+            sudo -u build sh -lc "
+              id
+              mkdir -p /output/sourcebuilder/docker-smoke
+              echo ok > /output/sourcebuilder/docker-smoke/result.txt
+            "
+          '
+          test -f firmware_output/sourcebuilder/docker-smoke/result.txt
+        shell: bash
+
   podman-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v5
 
       - name: Set executable permissions
         run: chmod +x _Builder.sh _packer.sh tester.sh
@@ -108,7 +145,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y podman podman-compose
         shell: bash
 
-      - name: Podman compose config
+      - name: Podman compose smoke
         run: |
           if podman compose version >/dev/null 2>&1; then
             COMPOSE_CMD=(podman compose)
@@ -119,20 +156,28 @@ jobs:
           "${COMPOSE_CMD[@]}" -f system/docker-compose.yaml -f system/podman-compose.yaml config >/dev/null
           "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml -f system/podman-compose-src.yaml config >/dev/null
           ROUTERFW_RUNTIME=podman bash ./_Builder.sh help >/dev/null
-        shell: bash
 
-      - name: Podman bind mount ownership
-        run: |
-          rm -rf podman-smoke-output
-          mkdir -p podman-smoke-output
-          podman run --rm --userns keep-id -v "$PWD/podman-smoke-output:/out:z" docker.io/library/alpine:3.20 sh -lc 'mkdir -p /out/nested && echo ok >/out/podman-smoke.txt && echo nested >/out/nested/inside.txt'
-          test -f podman-smoke-output/podman-smoke.txt
-          test -w podman-smoke-output/podman-smoke.txt
-          test "$(stat -c '%u' podman-smoke-output/podman-smoke.txt)" = "$(id -u)"
-          test -d podman-smoke-output/nested
-          test -w podman-smoke-output/nested
-          test "$(stat -c '%u' podman-smoke-output/nested)" = "$(id -u)"
-          test -f podman-smoke-output/nested/inside.txt
-          test -w podman-smoke-output/nested/inside.txt
-          test "$(stat -c '%u' podman-smoke-output/nested/inside.txt)" = "$(id -u)"
+          rm -rf firmware_output/imagebuilder/podman-smoke firmware_output/sourcebuilder/podman-smoke
+          mkdir -p firmware_output/imagebuilder/podman-smoke firmware_output/sourcebuilder/podman-smoke
+
+          SELECTED_CONF=tplink_841n_v9_190710_full.conf HOST_OUTPUT_DIR=./firmware_output/imagebuilder/podman-smoke HOST_PKGS_DIR=./custom_packages/tplink_841n_v9_190710_full HOST_FILES_DIR=./custom_files/tplink_841n_v9_190710_full "${COMPOSE_CMD[@]}" -f system/docker-compose.yaml -f system/podman-compose.yaml -p podman-smoke-ib run --build --rm builder-oldwrt sh -lc '
+            id
+            touch /builder_workspace/.routerfw-write-test
+            touch /output/imagebuilder/podman-smoke/.routerfw-output-test
+          '
+          test -f firmware_output/imagebuilder/podman-smoke/.routerfw-output-test
+          test -w firmware_output/imagebuilder/podman-smoke/.routerfw-output-test
+          test "$(stat -c '%u' firmware_output/imagebuilder/podman-smoke/.routerfw-output-test)" = "$(id -u)"
+
+          SELECTED_CONF=tplink_841n_v9_190710_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/podman-smoke HOST_PKGS_DIR=./src_packages/tplink_841n_v9_190710_full HOST_PATCHES_DIR=./custom_patches/tplink_841n_v9_190710_full HOST_FILES_DIR=./custom_files/tplink_841n_v9_190710_full "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml -f system/podman-compose-src.yaml -p podman-smoke-src run --build --rm builder-src-oldwrt sh -lc '
+            id
+            sudo -u build sh -lc "
+              id
+              mkdir -p /output/sourcebuilder/podman-smoke
+              echo ok > /output/sourcebuilder/podman-smoke/result.txt
+            "
+          '
+          test -f firmware_output/sourcebuilder/podman-smoke/result.txt
+          test -w firmware_output/sourcebuilder/podman-smoke/result.txt
+          test "$(stat -c '%u' firmware_output/sourcebuilder/podman-smoke/result.txt)" = "$(id -u)"
         shell: bash

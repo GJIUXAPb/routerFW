@@ -1,7 +1,7 @@
 # file: system/podman-compose-src.yaml
 services:
   builder-src-openwrt:
-    userns_mode: keep-id
+    userns_mode: "keep-id:uid=1000,gid=1000"
     volumes:
       - ../profiles:/profiles:ro,z
       - ../${HOST_PKGS_DIR}:/input_packages:z
@@ -12,7 +12,7 @@ services:
       - ./src_builder.sh:/src_builder.sh:ro,z
 
   builder-src-oldwrt:
-    userns_mode: keep-id
+    userns_mode: "keep-id:uid=1000,gid=1000"
     volumes:
       - ../profiles:/profiles:ro,z
       - ../${HOST_PKGS_DIR}:/input_packages:z
@@ -21,4 +21,4 @@ services:
       - ../${HOST_OUTPUT_DIR}:/output:z
       - ./openssl.cnf:/openssl.cnf:ro,z
       - ./src_builder.sh:/src_builder.sh:ro,z
-# checksum:MD5=5d9cf9a5d1de386a95abed4d3cd4dc93
+# checksum:MD5=ea95ac0bd8da38fdac102798f3b82f21
