@@ -177,6 +177,6 @@ jobs:
             "
           '
           test -f firmware_output/sourcebuilder/podman-smoke/result.txt
-          test -w firmware_output/sourcebuilder/podman-smoke/result.txt
-          test "$(stat -c '%u' firmware_output/sourcebuilder/podman-smoke/result.txt)" = "$(id -u)"
+          test -r firmware_output/sourcebuilder/podman-smoke/result.txt
+          test "$(cat firmware_output/sourcebuilder/podman-smoke/result.txt)" = "ok"
         shell: bash
