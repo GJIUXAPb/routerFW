@@ -237,6 +237,19 @@ run_compose() {
     local compose_args=()
     local f
     compose_files_for "$base"
+    if [ -n "${ROUTERFW_TEST_COMPOSE_LOG:-}" ]; then
+        {
+            printf '%s' "${COMPOSE_CMD[*]}"
+            for f in "${COMPOSE_FILES[@]}"; do
+                printf ' -f %s' "$f"
+            done
+            for arg in "$@"; do
+                printf ' %s' "$arg"
+            done
+            printf '\n'
+        } >> "$ROUTERFW_TEST_COMPOSE_LOG"
+        return 0
+    fi
     for f in "${COMPOSE_FILES[@]}"; do
         compose_args+=(-f "$f")
     done
@@ -356,6 +369,12 @@ fix_output_ownership() {
 resolve_runtime
 RUNTIME_READY=1
 export ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME"
+
+if [ -n "${ROUTERFW_TEST_COMPOSE_BASE:-}" ]; then
+    eval "set -- ${ROUTERFW_TEST_COMPOSE_ARGS:-}"
+    run_compose "$ROUTERFW_TEST_COMPOSE_BASE" "$@"
+    exit $?
+fi
 
 if [[ -n "${ROUTERFW_TEST_MODE:-}" ]]; then
     echo -e "  ${C_GRY}-${C_RST} ${L_INIT_DOCKER_VER}: ${C_KEY}${CONTAINER_LABEL} (TEST MODE)${C_RST}"
@@ -599,6 +618,16 @@ run_build_all() {
     local overall_status=0
     local success_profiles=()
     local failed_profiles=()
+
+    if [[ -n "${ROUTERFW_TEST_BUILD_STATUS:-}" ]]; then
+        local forced_status="${ROUTERFW_TEST_BUILD_STATUS}"
+        if [[ "$forced_status" =~ ^[0-9]+$ ]]; then
+            echo -e "${C_GRY}[TEST] Forcing build-all status: ${forced_status}${C_RST}"
+            return "$forced_status"
+        fi
+        echo -e "${C_ERR}[TEST] Invalid ROUTERFW_TEST_BUILD_STATUS: ${forced_status}${C_RST}"
+        return 1
+    fi
 
     if [ "$BUILD_MODE" == "SOURCE" ]; then
         echo -e "${C_ERR}${L_WARN_MASS}${C_RST}"
@@ -1960,4 +1989,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=f5871425c05ecacf3419c7e0e9ef58ee
+# checksum:MD5=0b931b2fe3b26518e7ee3372cf4a8237

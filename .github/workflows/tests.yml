@@ -19,10 +19,15 @@ jobs:
 
       - name: Verify executable permissions
         run: |
-          test -x _Builder.sh
-          test -x _packer.sh
-          test -x _unpacker.sh
-          test -x tester.sh
+          failed=0
+          for file in _Builder.sh _packer.sh tester.sh; do
+            mode="$(git ls-files -s -- "$file" | awk '{print $1}')"
+            if [[ "$mode" != "100755" ]]; then
+              echo "::error file=$file::$file has Git mode ${mode:-missing}, expected 100755"
+              failed=1
+            fi
+          done
+          exit "$failed"
         shell: bash
 
       - name: ShellCheck
@@ -113,14 +118,22 @@ jobs:
           fi
           podman info
           "${COMPOSE_CMD[@]}" -f system/docker-compose.yaml -f system/podman-compose.yaml config >/dev/null
+          "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml -f system/podman-compose-src.yaml config >/dev/null
+          ROUTERFW_RUNTIME=podman bash ./_Builder.sh help >/dev/null
         shell: bash
 
       - name: Podman bind mount ownership
         run: |
           rm -rf podman-smoke-output
           mkdir -p podman-smoke-output
-          podman run --rm --userns keep-id -v "$PWD/podman-smoke-output:/out:z" docker.io/library/alpine:3.20 sh -lc 'echo ok >/out/podman-smoke.txt'
+          podman run --rm --userns keep-id -v "$PWD/podman-smoke-output:/out:z" docker.io/library/alpine:3.20 sh -lc 'mkdir -p /out/nested && echo ok >/out/podman-smoke.txt && echo nested >/out/nested/inside.txt'
           test -f podman-smoke-output/podman-smoke.txt
           test -w podman-smoke-output/podman-smoke.txt
           test "$(stat -c '%u' podman-smoke-output/podman-smoke.txt)" = "$(id -u)"
+          test -d podman-smoke-output/nested
+          test -w podman-smoke-output/nested
+          test "$(stat -c '%u' podman-smoke-output/nested)" = "$(id -u)"
+          test -f podman-smoke-output/nested/inside.txt
+          test -w podman-smoke-output/nested/inside.txt
+          test "$(stat -c '%u' podman-smoke-output/nested/inside.txt)" = "$(id -u)"
         shell: bash

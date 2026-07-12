@@ -2,9 +2,11 @@
 # file: _packer.sh
 PACKER_VER="2.6"
 # Multi-threaded Base64 Resource Storage (checksum). Версия: PACKER_VER
-./_Builder.sh check-all
+bash ./_Builder.sh check-all
 echo -e "${C_LBL}========================================${C_RST}"
-read -p "Press Enter to start packing (v${PACKER_VER} SH MT)..."
+if [ -z "${ROUTERFW_TEST_MODE:-}" ]; then
+    read -p "Press Enter to start packing (v${PACKER_VER} SH MT)..."
+fi
 # Гарантируем работу в папке скрипта
 cd "$(dirname "$0")"
 
@@ -14,7 +16,9 @@ C_OK='\033[92m'
 C_ERR='\033[91m'
 C_RST='\033[0m'
 
-clear
+if [ -z "${ROUTERFW_TEST_MODE:-}" ]; then
+    clear
+fi
 echo -e "${C_LBL}========================================${C_RST}"
 echo -e "  OpenWrt Packer (v${PACKER_VER} MT Linux)"
 echo -e "${C_LBL}========================================${C_RST}"

@@ -5,6 +5,7 @@ rem CLI: --lang=RU|EN или -l RU|EN — язык. [ib|src] — режим. bui
 set "VER_NUM=4.60"
 
 setlocal enabledelayedexpansion
+if /i "%~1"=="--child-build-window" goto CHILD_BUILD_WINDOW
 if exist "system\version.env" (
   for /f "usebackq tokens=1,* delims==" %%A in ("system\version.env") do (
     if /i "%%A"=="ROUTERFW_VERSION" set "VER_NUM=%%B"
@@ -494,15 +495,19 @@ if %num_choice% lss 1 goto INVALID
 :: === ОДИНОЧНАЯ СБОРКА ===
 set "SELECTED_CONF=!profile[%choice%]!"
 call :BUILD_ROUTINE "%SELECTED_CONF%"
-set "BUILD_STATUS=%errorlevel%"
+set "BUILD_STATUS=!errorlevel!"
 if defined ROUTERFW_TEST_BUILD_STATUS (
-    if "%BUILD_STATUS%"=="0" (
+    if "!BUILD_STATUS!"=="0" (
         echo %L_FINISHED%
     ) else (
-        echo %L_BUILD_FATAL% %L_EXIT_CODE_LABEL% %BUILD_STATUS%
+        echo %L_BUILD_FATAL% %L_EXIT_CODE_LABEL% !BUILD_STATUS!
     )
 ) else (
-    echo %L_RUNNING%
+    if "!BUILD_STATUS!"=="0" (
+        echo %L_RUNNING%
+    ) else (
+        echo %L_BUILD_FATAL% %L_EXIT_CODE_LABEL% !BUILD_STATUS!
+    )
 )
 pause
 goto MENU
@@ -641,6 +646,11 @@ if "%BUILD_MODE%"=="SOURCE" (
 )
 echo.
 echo === !L_MASS_START! [%BUILD_MODE%] ===
+if defined ROUTERFW_TEST_BUILD_STATUS (
+    echo [TEST] Forcing build-all status: %ROUTERFW_TEST_BUILD_STATUS%
+    if defined CLI_CMD exit /b %ROUTERFW_TEST_BUILD_STATUS%
+    goto MENU
+)
 if not defined CLI_CMD if not defined ROUTERFW_TEST_BUILD_STATUS (
     for /L %%i in (1,1,%count%) do (
         set "CURRENT_CONF=!profile[%%i]!"
@@ -1441,10 +1451,18 @@ exit /b 0
 set "CONTAINER_EXE="
 set "COMPOSE_EXE="
 set "COMPOSE_IS_PLUGIN=0"
+set "RUNTIME_ERROR_MESSAGE_1="
+set "RUNTIME_ERROR_MESSAGE_2="
+set "RUNTIME_ERROR_MESSAGE_3="
 if defined ROUTERFW_TEST_MODE (
     if /i "%ROUTERFW_RUNTIME%"=="podman" (
         set "CONTAINER_EXE=podman"
-        set "COMPOSE_IS_PLUGIN=1"
+        if /i "%ROUTERFW_TEST_COMPOSE_PROVIDER%"=="standalone" (
+            set "COMPOSE_IS_PLUGIN=0"
+            set "COMPOSE_EXE=podman-compose"
+        ) else (
+            set "COMPOSE_IS_PLUGIN=1"
+        )
         exit /b 0
     )
     if /i not "%ROUTERFW_RUNTIME%"=="docker" if /i not "%ROUTERFW_RUNTIME%"=="auto" if /i not "%ROUTERFW_RUNTIME%"=="podman" (
@@ -1452,7 +1470,12 @@ if defined ROUTERFW_TEST_MODE (
         exit /b 1
     )
     set "CONTAINER_EXE=docker"
-    set "COMPOSE_IS_PLUGIN=1"
+    if /i "%ROUTERFW_TEST_COMPOSE_PROVIDER%"=="standalone" (
+        set "COMPOSE_IS_PLUGIN=0"
+        set "COMPOSE_EXE=docker-compose"
+    ) else (
+        set "COMPOSE_IS_PLUGIN=1"
+    )
     exit /b 0
 )
 if /i "%ROUTERFW_RUNTIME%"=="docker" (
@@ -1471,13 +1494,18 @@ call :TRY_RUNTIME_DOCKER
 if not errorlevel 1 exit /b 0
 call :TRY_RUNTIME_PODMAN
 if not errorlevel 1 exit /b 0
-echo %L_ERR_DOCKER%
-echo %L_ERR_DOCKER_MSG%
+if defined RUNTIME_ERROR_MESSAGE_1 echo %RUNTIME_ERROR_MESSAGE_1%
+if defined RUNTIME_ERROR_MESSAGE_2 echo %RUNTIME_ERROR_MESSAGE_2%
+if defined RUNTIME_ERROR_MESSAGE_3 echo %RUNTIME_ERROR_MESSAGE_3%
 exit /b 1
 
 :TRY_RUNTIME_DOCKER
 docker info >nul 2>&1
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+    set "RUNTIME_ERROR_MESSAGE_1=%L_ERR_DOCKER%"
+    set "RUNTIME_ERROR_MESSAGE_2=%L_ERR_DOCKER_MSG%"
+    exit /b 1
+)
 set "CONTAINER_EXE=docker"
 docker compose version >nul 2>&1
 if not errorlevel 1 (
@@ -1486,14 +1514,28 @@ if not errorlevel 1 (
     exit /b 0
 )
 docker-compose --version >nul 2>&1
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+    set "RUNTIME_ERROR_MESSAGE_1=%L_ERR_COMPOSE_PROVIDER_MISSING%"
+    set "RUNTIME_ERROR_MESSAGE_2=%L_ERR_COMPOSE_PROVIDER_MSG%"
+    set "RUNTIME_ERROR_MESSAGE_3=%L_ERR_DOCKER_MSG%"
+    exit /b 1
+)
 set "COMPOSE_IS_PLUGIN=0"
 set "COMPOSE_EXE=docker-compose"
 exit /b 0
 
 :TRY_RUNTIME_PODMAN
 podman info >nul 2>&1
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+    set "RUNTIME_ERROR_MESSAGE_1=%L_ERR_PODMAN%"
+    set "RUNTIME_ERROR_MESSAGE_2=%L_ERR_PODMAN_MSG%"
+    podman machine list 2>nul | findstr /I "Stopped Currently stopped" >nul
+    if not errorlevel 1 (
+        set "RUNTIME_ERROR_MESSAGE_1=%L_ERR_PODMAN_MACHINE_STOPPED%"
+        set "RUNTIME_ERROR_MESSAGE_2=%L_ERR_PODMAN_MACHINE_MSG%"
+    )
+    exit /b 1
+)
 set "CONTAINER_EXE=podman"
 podman compose version >nul 2>&1
 if not errorlevel 1 (
@@ -1502,7 +1544,12 @@ if not errorlevel 1 (
     exit /b 0
 )
 podman-compose --version >nul 2>&1
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+    set "RUNTIME_ERROR_MESSAGE_1=%L_ERR_COMPOSE_PROVIDER_MISSING%"
+    set "RUNTIME_ERROR_MESSAGE_2=%L_ERR_COMPOSE_PROVIDER_MSG%"
+    set "RUNTIME_ERROR_MESSAGE_3=%L_ERR_PODMAN_MSG%"
+    exit /b 1
+)
 set "COMPOSE_IS_PLUGIN=0"
 set "COMPOSE_EXE=podman-compose"
 exit /b 0
@@ -2116,8 +2163,17 @@ if "%COMPOSE_IS_PLUGIN%"=="1" (
     set "COMPOSE_START_CMD=%COMPOSE_EXE%"
 )
 
-:: Запуск в отдельном окне (с поддержкой интерактивного входа для SOURCE режима и обновления профиля)
-START "%WINDOW_TITLE%" cmd /v:on /c ^"set "SELECTED_CONF=%CONF_FILE%" ^&^& set "HOST_FILES_DIR=./custom_files/%PROFILE_ID%" ^&^& set "HOST_PKGS_DIR=%HOST_PKGS_DIR%" ^&^& set "HOST_PATCHES_DIR=%HOST_PATCHES_DIR%" ^&^& set "HOST_OUTPUT_DIR=%REL_OUT_PATH%" ^&^& set "BUILD_STATUS=0" ^& !COMPOSE_START_CMD! !COMPOSE_FILE_ARGS! -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME% ^& set "BUILD_STATUS=!errorlevel!" ^& if not "^!BUILD_STATUS^!"=="0" (echo !L_BUILD_FATAL! !L_EXIT_CODE_LABEL! ^!BUILD_STATUS^!) else (echo. ^& echo !L_FINISHED! ^& (if "%BUILD_MODE%"=="SOURCE" ( powershell -NoProfile -ExecutionPolicy Bypass -Command "$out='%REL_OUT_PATH%'; $conf='!SELECTED_CONF!'; Write-Host '--- DEBUG INFO ---' -ForegroundColor Yellow; if([string]::IsNullOrWhiteSpace($out)){ $out='./firmware_output/sourcebuilder/%PROFILE_ID%' }; Write-Host ('[DEBUG] Output Dir: ' + $out); $cleanOut = $out.Replace('./',''); if(Test-Path $cleanOut){ $files = Get-ChildItem -Path $cleanOut -Filter '*imagebuilder*.tar.zst' -Recurse; Write-Host ('[DEBUG] Files found: ' + $files.Count); $best = $files | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if($best){ $u = (Resolve-Path -Path $best.FullName -Relative).Replace('.\','').Replace('\','/'); Write-Host ('[DEBUG] Found IB: ' + $u) -ForegroundColor Yellow; Write-Host ''; Write-Host '!L_IB_UPDATE_ASK!' -ForegroundColor Cyan; $r = Read-Host '!L_IB_UPDATE_PROMPT!'; if($r -eq 'y'){ $pf='profiles/' + $conf; if(Test-Path $pf){ $lines = Get-Content $pf -Encoding UTF8; $newLine = 'IMAGEBUILDER_URL=' + [char]34 + $u + [char]34; $activeIndex = $null; $commentIndex = $null; for ($i = 0; $i -lt $lines.Count; $i++) { $trimmed = $lines[$i].Trim(); if ($trimmed -like 'IMAGEBUILDER_URL=*') { $activeIndex = $i } elseif ($trimmed -like '#*IMAGEBUILDER_URL=*') { $commentIndex = $i } }; if ($activeIndex -ne $null) { $lines[$activeIndex] = '#' + $lines[$activeIndex]; $lines = $lines[0..$activeIndex] + $newLine + $lines[($activeIndex+1)..($lines.Count-1)] } elseif ($commentIndex -ne $null) { $lines += $newLine } else { $lines += $newLine }; [System.IO.File]::WriteAllLines($pf, $lines, [System.Text.UTF8Encoding]::new($false)); Write-Host '!L_IB_UPDATE_OK!' -ForegroundColor Green } } } else { Write-Host '[DEBUG] Archive *imagebuilder*.tar.zst not found in folder.' -ForegroundColor Red } } else { Write-Host ('[DEBUG] Directory not found: ' + $cleanOut) -ForegroundColor Red }; Write-Host '------------------' -ForegroundColor Yellow " ) ) ^&^& (if "%BUILD_MODE%"=="SOURCE" ( powershell -NoProfile -Command "$Host.UI.RawUI.FlushInputBuffer()" ) ) ^&^& (if "%BUILD_MODE%"=="SOURCE" (set /p "stay=!L_K_STAY! " ^& if /i "^!stay^!"=="y" (echo. ^& echo !L_K_SHELL_H1! ^& echo !L_K_SHELL_H2! ^& echo !L_K_SHELL_H3! ^& !COMPOSE_START_CMD! !COMPOSE_FILE_ARGS! -p %PROJ_NAME% run --rm -it %SERVICE_NAME% /bin/bash)))) ^& pause ^"
+set "CHILD_SELECTED_CONF=%CONF_FILE%"
+set "CHILD_PROFILE_ID=%PROFILE_ID%"
+set "CHILD_HOST_FILES_DIR=./custom_files/%PROFILE_ID%"
+set "CHILD_HOST_PKGS_DIR=%HOST_PKGS_DIR%"
+set "CHILD_HOST_PATCHES_DIR=%HOST_PATCHES_DIR%"
+set "CHILD_HOST_OUTPUT_DIR=%REL_OUT_PATH%"
+set "CHILD_COMPOSE_BASE_FILE=%COMPOSE_ARG%"
+set "CHILD_PROJ_NAME=%PROJ_NAME%"
+set "CHILD_SERVICE_NAME=%SERVICE_NAME%"
+set "CHILD_BUILD_MODE=%BUILD_MODE%"
+START "%WINDOW_TITLE%" cmd /v:on /c call "%~f0" --child-build-window
 exit /b 0
 
 :BUILD_ROUTINE_INLINE
@@ -2131,6 +2187,45 @@ call :RUN_COMPOSE -p %PROJ_NAME% down --remove-orphans >nul 2>&1
 call :RUN_COMPOSE -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME%
 set "BUILD_STATUS=%errorlevel%"
 exit /b %BUILD_STATUS%
+
+:CHILD_BUILD_WINDOW
+set "SELECTED_CONF=%CHILD_SELECTED_CONF%"
+set "PROFILE_ID=%CHILD_PROFILE_ID%"
+set "HOST_FILES_DIR=%CHILD_HOST_FILES_DIR%"
+set "HOST_PKGS_DIR=%CHILD_HOST_PKGS_DIR%"
+set "HOST_PATCHES_DIR=%CHILD_HOST_PATCHES_DIR%"
+set "HOST_OUTPUT_DIR=%CHILD_HOST_OUTPUT_DIR%"
+set "COMPOSE_BASE_FILE=%CHILD_COMPOSE_BASE_FILE%"
+set "PROJ_NAME=%CHILD_PROJ_NAME%"
+set "SERVICE_NAME=%CHILD_SERVICE_NAME%"
+set "BUILD_MODE=%CHILD_BUILD_MODE%"
+call :RUN_COMPOSE -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME%
+set "BUILD_STATUS=%errorlevel%"
+if not "%BUILD_STATUS%"=="0" (
+    echo %L_BUILD_FATAL% %L_EXIT_CODE_LABEL% %BUILD_STATUS%
+    pause
+    exit /b %BUILD_STATUS%
+)
+echo.
+echo %L_FINISHED%
+if "%BUILD_MODE%"=="SOURCE" (
+    call :SOURCE_POST_BUILD "%SELECTED_CONF%" "%HOST_OUTPUT_DIR%" "%PROFILE_ID%"
+    powershell -NoProfile -Command "$Host.UI.RawUI.FlushInputBuffer()"
+    set /p "stay=%L_K_STAY% "
+    if /i "!stay!"=="y" (
+        echo.
+        echo %L_K_SHELL_H1%
+        echo %L_K_SHELL_H2%
+        echo %L_K_SHELL_H3%
+        call :RUN_COMPOSE -p %PROJ_NAME% run --rm -it %SERVICE_NAME% /bin/bash
+    )
+)
+pause
+exit /b 0
+
+:SOURCE_POST_BUILD
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$out='%~2'; $conf='%~1'; Write-Host '--- DEBUG INFO ---' -ForegroundColor Yellow; if([string]::IsNullOrWhiteSpace($out)){ $out='./firmware_output/sourcebuilder/%~3' }; Write-Host ('[DEBUG] Output Dir: ' + $out); $cleanOut = $out.Replace('./',''); if(Test-Path $cleanOut){ $files = Get-ChildItem -Path $cleanOut -Filter '*imagebuilder*.tar.zst' -Recurse; Write-Host ('[DEBUG] Files found: ' + $files.Count); $best = $files | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if($best){ $u = (Resolve-Path -Path $best.FullName -Relative).Replace('.\','').Replace('\','/'); Write-Host ('[DEBUG] Found IB: ' + $u) -ForegroundColor Yellow; Write-Host ''; Write-Host '%L_IB_UPDATE_ASK%' -ForegroundColor Cyan; $r = Read-Host '%L_IB_UPDATE_PROMPT%'; if($r -eq 'y'){ $pf='profiles/' + $conf; if(Test-Path $pf){ $lines = Get-Content $pf -Encoding UTF8; $newLine = 'IMAGEBUILDER_URL=' + [char]34 + $u + [char]34; $activeIndex = $null; $commentIndex = $null; for ($i = 0; $i -lt $lines.Count; $i++) { $trimmed = $lines[$i].Trim(); if ($trimmed -like 'IMAGEBUILDER_URL=*') { $activeIndex = $i } elseif ($trimmed -like '#*IMAGEBUILDER_URL=*') { $commentIndex = $i } }; if ($activeIndex -ne $null) { $lines[$activeIndex] = '#' + $lines[$activeIndex]; $lines = $lines[0..$activeIndex] + $newLine + $lines[($activeIndex+1)..($lines.Count-1)] } elseif ($commentIndex -ne $null) { $lines += $newLine } else { $lines += $newLine }; [System.IO.File]::WriteAllLines($pf, $lines, [System.Text.UTF8Encoding]::new($false)); Write-Host '%L_IB_UPDATE_OK%' -ForegroundColor Green } } } else { Write-Host '[DEBUG] Archive *imagebuilder*.tar.zst not found in folder.' -ForegroundColor Red } } else { Write-Host ('[DEBUG] Directory not found: ' + $cleanOut) -ForegroundColor Red }; Write-Host '------------------' -ForegroundColor Yellow "
+exit /b 0
 
 :: =========================================================
 ::  HELPERS
@@ -2176,4 +2271,4 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJlYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=da5232d5baccd293b4e20832bba10955
+:: checksum:MD5=9de3f125ccb8e97ca1b22477c21e114b

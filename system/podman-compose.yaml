@@ -19,3 +19,4 @@ services:
       - ../profiles:/profiles:ro,z
       - ./openssl.cnf:/openssl.cnf:ro,z
       - ./ib_builder.sh:/ib_builder.sh:ro,z
+# checksum:MD5=5b9e56d37e474c6e16cb89675de6d488

@@ -21,3 +21,4 @@ services:
       - ../${HOST_OUTPUT_DIR}:/output:z
       - ./openssl.cnf:/openssl.cnf:ro,z
       - ./src_builder.sh:/src_builder.sh:ro,z
+# checksum:MD5=5d9cf9a5d1de386a95abed4d3cd4dc93

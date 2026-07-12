@@ -7,16 +7,20 @@ chcp 65001 >nul
 :: Проверка аргумента для запуска рабочего потока (WORKER)
 if "%~1"==":WORKER" goto :WORKER
 
-CALL _Builder.bat check-all
+if not defined ROUTERFW_TEST_MODE CALL _Builder.bat check-all
 echo =========================================
-echo [INFO] Ready to start packing (v%PACKER_VER%) Press any key...
-pause
+if defined ROUTERFW_TEST_MODE (
+    echo [INFO] Ready to start packing v%PACKER_VER% TEST MODE
+) else (
+    echo [INFO] Ready to start packing v%PACKER_VER% Press any key...
+    pause
+)
 
 :: =========================================================
 ::  Упаковщик общих ресурсов (Multi-Threaded Fixed), v%PACKER_VER%
 :: =========================================================
 
-cls
+if not defined ROUTERFW_TEST_MODE cls
 echo ========================================
 echo  OpenWrt Universal Packer (v%PACKER_VER% MT)
 echo ========================================
@@ -117,13 +121,16 @@ echo [PACKER] Запуск потоков кодирования (%IDX% файл
 set "ACTIVE_TASKS=0"
 for /L %%i in (1,1,%IDX%) do (
     set "CURRENT_FILE=!FILE_%%i!"
-    if exist "!CURRENT_FILE!" (
-        rem Тройные кавычки для защиты пробелов в пути к скрипту
-        start "" /b cmd /c "call "%~f0" :WORKER "!CURRENT_FILE!" "%%i" "!FULL_TEMP_DIR!""
-        set /a ACTIVE_TASKS+=1
-    ) else (
+    if not exist "!CURRENT_FILE!" (
         echo   [SKIP] Файл '!CURRENT_FILE!' не найден.
         echo. > "%FULL_TEMP_DIR%\%%i.ready"
+    ) else (
+        if defined ROUTERFW_TEST_MODE call :RUN_WORKER_SYNC "!CURRENT_FILE!" "%%i" "!FULL_TEMP_DIR!"
+        if not defined ROUTERFW_TEST_MODE (
+            rem Тройные кавычки для защиты пробелов в пути к скрипту
+            start "" /b cmd /c call ""%~f0"" :WORKER ""!CURRENT_FILE!"" ""%%i"" ""!FULL_TEMP_DIR!""
+            set /a ACTIVE_TASKS+=1
+        )
     )
 )
 
@@ -227,11 +234,20 @@ set /a IDX+=1
 set "FILE_%IDX%=%~1"
 exit /b
 
+:RUN_WORKER_SYNC
+call :WORKER "%~1" "%~2" "%~3"
+exit /b
+
 :WORKER
-rem %2 = Файл, %3 = ID, %4 = Temp Dir
-set "W_FILE=%~2"
-set "W_ID=%~3"
-set "W_DIR=%~4"
+rem Supports both direct label call and recursive file call with :WORKER as %1.
+set "W_FILE=%~1"
+set "W_ID=%~2"
+set "W_DIR=%~3"
+if /i "%~1"==":WORKER" (
+    set "W_FILE=%~2"
+    set "W_ID=%~3"
+    set "W_DIR=%~4"
+)
 set "W_TMP=%W_DIR%\%W_ID%.tmp"
 set "W_STAGED=%W_DIR%\%W_ID%.staged"
 set "W_OUT=%W_DIR%\%W_ID%.chunk"
@@ -246,7 +262,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 if not exist "%W_STAGED%" (
     echo :: ERROR_PACKING_FILE: %W_FILE% > "%W_OUT%"
     echo done > "%W_RDY%"
-    exit
+    exit /b
 )
 
 rem 2. Считаем MD5
@@ -275,7 +291,7 @@ if not exist "%W_TMP%" (
     echo :: ERROR_PACKING_FILE: %W_FILE% > "%W_OUT%"
     del /q "%W_STAGED%" 2>nul
     echo done > "%W_RDY%"
-    exit
+    exit /b
 )
 (
     echo.
@@ -287,4 +303,4 @@ if not exist "%W_TMP%" (
 del /q "%W_TMP%" 2>nul
 del /q "%W_STAGED%" 2>nul
 echo done > "%W_RDY%"
-exit
+exit /b
