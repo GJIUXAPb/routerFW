@@ -170,6 +170,7 @@ jobs:
           SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/podman-smoke HOST_PKGS_DIR=./src_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_PATCHES_DIR=./custom_patches/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml -p podman-smoke-src build builder-src-openwrt
           SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/podman-smoke HOST_PKGS_DIR=./src_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_PATCHES_DIR=./custom_patches/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml -p podman-smoke-src run --rm builder-src-openwrt sh -lc '
             id
+            chown build:build /output
             sudo -u build sh -lc "
               id
               echo ok > /output/result.txt
