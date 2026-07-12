@@ -1508,6 +1508,9 @@ if defined RUNTIME_ERROR_MESSAGE_3 echo %RUNTIME_ERROR_MESSAGE_3%
 exit /b 0
 
 :TRY_RUNTIME_DOCKER
+set "RUNTIME_ERROR_MESSAGE_1="
+set "RUNTIME_ERROR_MESSAGE_2="
+set "RUNTIME_ERROR_MESSAGE_3="
 docker info >nul 2>&1
 if errorlevel 1 (
     set "RUNTIME_ERROR_MESSAGE_1=%L_ERR_DOCKER%"
@@ -1533,11 +1536,14 @@ set "COMPOSE_EXE=docker-compose"
 exit /b 0
 
 :TRY_RUNTIME_PODMAN
+set "RUNTIME_ERROR_MESSAGE_1="
+set "RUNTIME_ERROR_MESSAGE_2="
+set "RUNTIME_ERROR_MESSAGE_3="
 podman info >nul 2>&1
 if errorlevel 1 (
     set "RUNTIME_ERROR_MESSAGE_1=%L_ERR_PODMAN%"
     set "RUNTIME_ERROR_MESSAGE_2=%L_ERR_PODMAN_MSG%"
-    podman machine list 2>nul | findstr /I "Stopped Currently stopped" >nul
+    podman machine list 2>nul | findstr /I /C:"Currently stopped" /C:"Stopped" >nul
     if not errorlevel 1 (
         set "RUNTIME_ERROR_MESSAGE_1=%L_ERR_PODMAN_MACHINE_STOPPED%"
         set "RUNTIME_ERROR_MESSAGE_2=%L_ERR_PODMAN_MACHINE_MSG%"
@@ -2279,4 +2285,4 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJlYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=1c35964b72d58cb79d53c377a743fbe8
+:: checksum:MD5=ec66f614a9f2e89eaba533d40c8ad14d

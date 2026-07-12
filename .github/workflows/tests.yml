@@ -10,13 +10,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Set executable permissions
+      - name: Verify executable permissions
         shell: bash
         run: |
-          chmod +x _Builder.sh _packer.sh tester.sh
-          test -x _Builder.sh
-          test -x _packer.sh
-          test -x tester.sh
+          failed=0
+          for file in _Builder.sh _packer.sh tester.sh; do
+            mode="$(git ls-files -s -- "$file" | awk '{print $1}')"
+            if [[ "$mode" != "100755" ]]; then
+              echo "::error file=$file::$file has Git mode $mode; expected 100755"
+              failed=1
+            fi
+          done
+          exit "$failed"
 
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
@@ -100,10 +105,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Set executable permissions
-        run: chmod +x _Builder.sh _packer.sh tester.sh
-        shell: bash
-
       - name: Docker compose smoke
         run: |
           docker info
@@ -123,10 +124,10 @@ jobs:
 
           SELECTED_CONF=tplink_841n_v9_190710_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/docker-smoke HOST_PKGS_DIR=./src_packages/tplink_841n_v9_190710_full HOST_PATCHES_DIR=./custom_patches/tplink_841n_v9_190710_full HOST_FILES_DIR=./custom_files/tplink_841n_v9_190710_full docker compose -f system/docker-compose-src.yaml -p docker-smoke-src run --build --rm builder-src-oldwrt sh -lc '
             id
+            chown build:build /output
             sudo -u build sh -lc "
               id
-              mkdir -p /output/sourcebuilder/docker-smoke
-              echo ok > /output/sourcebuilder/docker-smoke/result.txt
+              echo ok > /output/result.txt
             "
           '
           test -f firmware_output/sourcebuilder/docker-smoke/result.txt
@@ -136,10 +137,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-
-      - name: Set executable permissions
-        run: chmod +x _Builder.sh _packer.sh tester.sh
-        shell: bash
 
       - name: Install podman
         run: sudo apt-get update && sudo apt-get install -y podman podman-compose
@@ -173,8 +170,7 @@ jobs:
             id
             sudo -u build sh -lc "
               id
-              mkdir -p /output/sourcebuilder/podman-smoke
-              echo ok > /output/sourcebuilder/podman-smoke/result.txt
+              echo ok > /output/result.txt
             "
           '
           test -f firmware_output/sourcebuilder/podman-smoke/result.txt

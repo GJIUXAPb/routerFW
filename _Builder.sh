@@ -212,6 +212,9 @@ CONTAINER_CMD=(docker)
 COMPOSE_CMD=(docker compose)
 COMPOSE_FILES=()
 PODMAN_MACHINE_HINT=""
+RUNTIME_ERROR_MESSAGE_1=""
+RUNTIME_ERROR_MESSAGE_2=""
+RUNTIME_ERROR_MESSAGE_3=""
 ROUTERFW_RUNTIME="${RUNTIME_OVERRIDE,,}"
 RUNTIME_READY=0
 DOCKER_CONFIG_CREATED=0
@@ -262,8 +265,13 @@ run_container() {
 
 try_runtime_candidate() {
     local candidate="$1"
+    RUNTIME_ERROR_MESSAGE_1=""
+    RUNTIME_ERROR_MESSAGE_2=""
+    RUNTIME_ERROR_MESSAGE_3=""
     case "$candidate" in
         docker)
+            RUNTIME_ERROR_MESSAGE_1="$L_ERR_DOCKER"
+            RUNTIME_ERROR_MESSAGE_2="$L_ERR_DOCKER_MSG"
             command -v docker >/dev/null 2>&1 || return 1
             docker info >/dev/null 2>&1 || return 1
             CONTAINER_RUNTIME="docker"
@@ -276,17 +284,26 @@ try_runtime_candidate() {
                 COMPOSE_CMD=(docker-compose)
                 COMPOSE_LABEL="docker-compose"
             else
+                RUNTIME_ERROR_MESSAGE_1="$L_ERR_COMPOSE_PROVIDER_MISSING"
+                RUNTIME_ERROR_MESSAGE_2="$L_ERR_COMPOSE_PROVIDER_MSG"
+                RUNTIME_ERROR_MESSAGE_3="$L_ERR_DOCKER_MSG"
                 return 1
             fi
             return 0
             ;;
         podman)
+            RUNTIME_ERROR_MESSAGE_1="$L_ERR_PODMAN"
+            RUNTIME_ERROR_MESSAGE_2="$L_ERR_PODMAN_MSG"
             command -v podman >/dev/null 2>&1 || return 1
             if ! podman info >/dev/null 2>&1; then
                 if command -v podman-machine >/dev/null 2>&1; then
                     PODMAN_MACHINE_HINT=$(podman machine list 2>/dev/null | tr -d '\r' | grep -i "Currently stopped" | head -1)
                 elif podman machine list >/dev/null 2>&1; then
                     PODMAN_MACHINE_HINT=$(podman machine list 2>/dev/null | tr -d '\r' | grep -i "Currently stopped" | head -1)
+                fi
+                if [ -n "$PODMAN_MACHINE_HINT" ]; then
+                    RUNTIME_ERROR_MESSAGE_1="$L_ERR_PODMAN_MACHINE_STOPPED"
+                    RUNTIME_ERROR_MESSAGE_2="$L_ERR_PODMAN_MACHINE_MSG"
                 fi
                 return 1
             fi
@@ -300,12 +317,23 @@ try_runtime_candidate() {
                 COMPOSE_CMD=(podman-compose)
                 COMPOSE_LABEL="podman-compose"
             else
+                RUNTIME_ERROR_MESSAGE_1="$L_ERR_COMPOSE_PROVIDER_MISSING"
+                RUNTIME_ERROR_MESSAGE_2="$L_ERR_COMPOSE_PROVIDER_MSG"
+                RUNTIME_ERROR_MESSAGE_3="$L_ERR_PODMAN_MSG"
                 return 1
             fi
             return 0
             ;;
     esac
     return 1
+}
+
+print_runtime_errors() {
+    for msg in "$RUNTIME_ERROR_MESSAGE_1" "$RUNTIME_ERROR_MESSAGE_2" "$RUNTIME_ERROR_MESSAGE_3"; do
+        if [ -n "$msg" ]; then
+            echo -e "$msg"
+        fi
+    done
 }
 
 resolve_runtime() {
@@ -342,10 +370,8 @@ resolve_runtime() {
             exit 1
             ;;
     esac
+    print_runtime_errors
     echo -e "${C_ERR}[RUNTIME] Unable to initialize runtime '${ROUTERFW_RUNTIME}'.${C_RST}"
-    if [ -n "$PODMAN_MACHINE_HINT" ]; then
-        echo -e "${C_ERR}[RUNTIME] Podman machine appears stopped: ${PODMAN_MACHINE_HINT}${C_RST}"
-    fi
     exit 1
 }
 
@@ -1989,4 +2015,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=0b931b2fe3b26518e7ee3372cf4a8237
+# checksum:MD5=0a431c349ab55dd99a2a88a00690046f

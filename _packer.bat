@@ -87,9 +87,11 @@ set "TEMP_DIR_NAME=temp_packer_worker"
 set "FULL_TEMP_DIR=%~dp0%TEMP_DIR_NAME%"
 
 :: Очистка и подготовка
-if exist "%NEW_UNPACKER_FILE%" del /f /q "%NEW_UNPACKER_FILE%"
+if exist "%NEW_UNPACKER_FILE%" del /f /q "%NEW_UNPACKER_FILE%" >nul 2>&1
+if exist "%NEW_UNPACKER_FILE%" goto PACK_STALE_NEW
 if exist "%FULL_TEMP_DIR%" rd /s /q "%FULL_TEMP_DIR%"
 md "%FULL_TEMP_DIR%"
+if not exist "%FULL_TEMP_DIR%" goto PACK_TEMP_ERROR
 
 :: === 2. Генерируем ШАПКУ _unpacker.bat ===
 echo [PACKER] Создание структуры распаковщика...
@@ -120,18 +122,8 @@ echo [PACKER] Запуск потоков кодирования (%IDX% файл
 
 set "ACTIVE_TASKS=0"
 for /L %%i in (1,1,%IDX%) do (
-    set "CURRENT_FILE=!FILE_%%i!"
-    if not exist "!CURRENT_FILE!" (
-        echo   [SKIP] Файл '!CURRENT_FILE!' не найден.
-        echo. > "%FULL_TEMP_DIR%\%%i.ready"
-    ) else (
-        if defined ROUTERFW_TEST_MODE call :RUN_WORKER_SYNC "!CURRENT_FILE!" "%%i" "!FULL_TEMP_DIR!"
-        if not defined ROUTERFW_TEST_MODE (
-            rem Тройные кавычки для защиты пробелов в пути к скрипту
-            start "" /b cmd /c call ""%~f0"" :WORKER ""!CURRENT_FILE!"" ""%%i"" ""!FULL_TEMP_DIR!""
-            set /a ACTIVE_TASKS+=1
-        )
-    )
+    call :PROCESS_FILE "%%i"
+    if errorlevel 1 goto PACK_ERROR
 )
 
 echo [PACKER] Ожидание завершения потоков...
@@ -205,7 +197,10 @@ for /L %%i in (1,1,%IDX%) do (
     )
 )
 
-move /Y "%NEW_UNPACKER_FILE%" "_unpacker.bat" > nul
+echo [PACKER] Замена итогового _unpacker.bat...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Move-Item -LiteralPath '%NEW_UNPACKER_FILE%' -Destination '_unpacker.bat' -Force -ErrorAction Stop; exit 0 } catch { Write-Error $_.Exception.Message; exit 1 }"
+if errorlevel 1 goto PACK_MOVE_ERROR
+if exist "%NEW_UNPACKER_FILE%" goto PACK_MOVE_LEFTOVER
 
 :: === 5. Очистка и создание ZIP ===
 rd /s /q "%FULL_TEMP_DIR%"
@@ -229,9 +224,62 @@ exit /b
 ::  ФУНКЦИИ И РАБОЧИЕ ПОТОКИ
 :: =========================================================
 
+:PACK_STALE_NEW
+echo [ERROR] Не удалось удалить старый файл %NEW_UNPACKER_FILE%.
+goto PACK_ERROR
+
+:PACK_TEMP_ERROR
+echo [ERROR] Не удалось создать временную папку %FULL_TEMP_DIR%.
+goto PACK_ERROR
+
+:PACK_WORKER_START_ERROR
+echo [ERROR] Не удалось запустить worker для "%PACK_ERROR_FILE%".
+goto PACK_ERROR
+
+:PACK_MOVE_ERROR
+echo.
+echo [ERROR] Не удалось заменить _unpacker.bat.
+echo [ERROR] Возможно, файл открыт, запущен, заблокирован антивирусом или защищён от записи.
+goto PACK_ERROR
+
+:PACK_MOVE_LEFTOVER
+echo [ERROR] Временный файл %NEW_UNPACKER_FILE% не был перемещён.
+goto PACK_ERROR
+
+:PACK_ERROR
+echo.
+echo [ERROR] Упаковка прервана.
+if exist "%FULL_TEMP_DIR%" rd /s /q "%FULL_TEMP_DIR%" >nul 2>&1
+if exist "%NEW_UNPACKER_FILE%" del /f /q "%NEW_UNPACKER_FILE%" >nul 2>&1
+exit /b 1
+
 :ADD_FILE
 set /a IDX+=1
 set "FILE_%IDX%=%~1"
+exit /b
+
+:PROCESS_FILE
+set "CURRENT_ID=%~1"
+set "CURRENT_FILE=!FILE_%CURRENT_ID%!"
+if not exist "%CURRENT_FILE%" (
+    echo   [SKIP] Файл "%CURRENT_FILE%" не найден.
+    echo. > "%FULL_TEMP_DIR%\%CURRENT_ID%.ready"
+    exit /b 0
+)
+
+set "PACK_ERROR_FILE=%CURRENT_FILE%"
+if defined ROUTERFW_TEST_MODE (
+    call :RUN_WORKER_SYNC "%CURRENT_FILE%" "%CURRENT_ID%" "%FULL_TEMP_DIR%"
+    exit /b !errorlevel!
+)
+
+call :START_WORKER "%CURRENT_FILE%" "%CURRENT_ID%" "%FULL_TEMP_DIR%"
+if errorlevel 1 exit /b 1
+set /a ACTIVE_TASKS+=1
+exit /b 0
+
+:START_WORKER
+start "" /b "%ComSpec%" /d /c call "%~f0" :WORKER "%~1" "%~2" "%~3"
 exit /b
 
 :RUN_WORKER_SYNC
