@@ -8,7 +8,7 @@ jobs:
   linux-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set executable permissions
         shell: bash
@@ -72,7 +72,7 @@ jobs:
 
       - name: Upload Linux tester log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tester-log-linux
           path: tester_log_lin.md
@@ -80,7 +80,7 @@ jobs:
   windows-tests:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run batch tester
         run: .\tester.bat
@@ -90,7 +90,7 @@ jobs:
 
       - name: Upload Windows tester log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tester-log-windows
           path: tester_log_win.md
@@ -98,7 +98,7 @@ jobs:
   podman-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set executable permissions
         run: chmod +x _Builder.sh _packer.sh tester.sh
