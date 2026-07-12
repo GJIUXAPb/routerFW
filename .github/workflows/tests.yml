@@ -157,7 +157,8 @@ jobs:
           rm -rf firmware_output/imagebuilder/podman-smoke firmware_output/sourcebuilder/podman-smoke
           mkdir -p firmware_output/imagebuilder/podman-smoke firmware_output/sourcebuilder/podman-smoke
 
-          SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/imagebuilder/podman-smoke HOST_PKGS_DIR=./custom_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose.yaml -f system/podman-compose.yaml -p podman-smoke-ib run --build --rm builder-openwrt sh -lc '
+          SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/imagebuilder/podman-smoke HOST_PKGS_DIR=./custom_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose.yaml -f system/podman-compose.yaml -p podman-smoke-ib build builder-openwrt
+          SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/imagebuilder/podman-smoke HOST_PKGS_DIR=./custom_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose.yaml -f system/podman-compose.yaml -p podman-smoke-ib run --rm builder-openwrt sh -lc '
             id
             touch /builder_workspace/.routerfw-write-test
             touch /output/imagebuilder/podman-smoke/.routerfw-output-test
@@ -166,7 +167,8 @@ jobs:
           test -w firmware_output/imagebuilder/podman-smoke/.routerfw-output-test
           test "$(stat -c '%u' firmware_output/imagebuilder/podman-smoke/.routerfw-output-test)" = "$(id -u)"
 
-          SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/podman-smoke HOST_PKGS_DIR=./src_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_PATCHES_DIR=./custom_patches/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml -f system/podman-compose-src.yaml -p podman-smoke-src run --build --rm builder-src-openwrt sh -lc '
+          SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/podman-smoke HOST_PKGS_DIR=./src_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_PATCHES_DIR=./custom_patches/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml -f system/podman-compose-src.yaml -p podman-smoke-src build builder-src-openwrt
+          SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/podman-smoke HOST_PKGS_DIR=./src_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_PATCHES_DIR=./custom_patches/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml -f system/podman-compose-src.yaml -p podman-smoke-src run --rm builder-src-openwrt sh -lc '
             id
             sudo -u build sh -lc "
               id
