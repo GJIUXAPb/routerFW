@@ -42,6 +42,8 @@ _cli_args=("" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9")
 _idx=1
 _i=1
 RUNTIME_OVERRIDE="${ROUTERFW_RUNTIME:-auto}"
+RUNTIME_EXPLICIT=0
+[ -n "${ROUTERFW_RUNTIME:-}" ] && RUNTIME_EXPLICIT=1
 while [ $_i -le 9 ]; do
     _arg="${_cli_args[$_i]}"
     [ -z "$_arg" ] && { ((_i++)); continue; }
@@ -66,6 +68,7 @@ while [ $_i -le 9 ]; do
         _val="${_arg:10}"
         if [[ "$_val" =~ ^(auto|docker|podman)$ ]]; then
             RUNTIME_OVERRIDE="${_val,,}"
+            RUNTIME_EXPLICIT=1
         else
             CLI_RUNTIME_ERROR=1
         fi
@@ -76,6 +79,7 @@ while [ $_i -le 9 ]; do
         _next="${_cli_args[$((_i+1))]}"
         if [[ -n "$_next" && "$_next" =~ ^(auto|docker|podman)$ ]]; then
             RUNTIME_OVERRIDE="${_next,,}"
+            RUNTIME_EXPLICIT=1
             ((_i+=2))
             continue
         fi
@@ -392,30 +396,46 @@ fix_output_ownership() {
     fi
 }
 
-resolve_runtime
-RUNTIME_READY=1
-export ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME"
+_runtime_cmd="$effective_1"
+case "${_runtime_cmd^^}" in
+    IB|IMAGE|SRC|SOURCE)
+        _runtime_cmd="$effective_2"
+        ;;
+esac
+RUNTIME_REQUIRED=1
+case "${_runtime_cmd^^}" in
+    HELP|-H|--HELP|STATE|S|CHECK-ALL|CHECK-CLEAR|CHECK|EDIT|E|WIZARD|W)
+        RUNTIME_REQUIRED=0
+        ;;
+esac
+[ "$RUNTIME_EXPLICIT" -eq 1 ] && RUNTIME_REQUIRED=1
+[ -n "${ROUTERFW_TEST_COMPOSE_BASE:-}" ] && RUNTIME_REQUIRED=1
 
-if [ -n "${ROUTERFW_TEST_COMPOSE_BASE:-}" ]; then
-    eval "set -- ${ROUTERFW_TEST_COMPOSE_ARGS:-}"
-    run_compose "$ROUTERFW_TEST_COMPOSE_BASE" "$@"
-    exit $?
-fi
+if [ "$RUNTIME_REQUIRED" -eq 1 ]; then
+    resolve_runtime
+    RUNTIME_READY=1
+    export ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME"
 
-if [[ -n "${ROUTERFW_TEST_MODE:-}" ]]; then
-    echo -e "  ${C_GRY}-${C_RST} ${L_INIT_DOCKER_VER}: ${C_KEY}${CONTAINER_LABEL} (TEST MODE)${C_RST}"
-    echo -e "  ${C_GRY}-${C_RST} ${L_INIT_COMPOSE_VER}: ${C_KEY}${COMPOSE_LABEL} (TEST MODE)${C_RST}"
-else
-    # === ФИКС DOCKER CREDENTIALS ===
-    # Копируем реальный конфиг (с proxy/dns настройками), но убираем credsStore
-    # чтобы не падала авторизация в безголовых окружениях
-    if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-        export DOCKER_CONFIG_DIR="$PROJECT_DIR/.docker_tmp"
-        mkdir -p "$DOCKER_CONFIG_DIR"
-        DOCKER_CONFIG_CREATED=1
-        _REAL_CFG="$HOME/.docker/config.json"
-        if [ -f "$_REAL_CFG" ] && command -v python3 &>/dev/null; then
-            python3 -c "
+    if [ -n "${ROUTERFW_TEST_COMPOSE_BASE:-}" ]; then
+        eval "set -- ${ROUTERFW_TEST_COMPOSE_ARGS:-}"
+        run_compose "$ROUTERFW_TEST_COMPOSE_BASE" "$@"
+        exit $?
+    fi
+
+    if [[ -n "${ROUTERFW_TEST_MODE:-}" ]]; then
+        echo -e "  ${C_GRY}-${C_RST} ${L_INIT_DOCKER_VER}: ${C_KEY}${CONTAINER_LABEL} (TEST MODE)${C_RST}"
+        echo -e "  ${C_GRY}-${C_RST} ${L_INIT_COMPOSE_VER}: ${C_KEY}${COMPOSE_LABEL} (TEST MODE)${C_RST}"
+    else
+        # === ФИКС DOCKER CREDENTIALS ===
+        # Копируем реальный конфиг (с proxy/dns настройками), но убираем credsStore
+        # чтобы не падала авторизация в безголовых окружениях
+        if [ "$CONTAINER_RUNTIME" = "docker" ]; then
+            export DOCKER_CONFIG_DIR="$PROJECT_DIR/.docker_tmp"
+            mkdir -p "$DOCKER_CONFIG_DIR"
+            DOCKER_CONFIG_CREATED=1
+            _REAL_CFG="$HOME/.docker/config.json"
+            if [ -f "$_REAL_CFG" ] && command -v python3 &>/dev/null; then
+                python3 -c "
 import json, sys
 with open('$_REAL_CFG') as f:
     cfg = json.load(f)
@@ -423,19 +443,20 @@ cfg.pop('credsStore', None)
 cfg.pop('credHelpers', None)
 print(json.dumps(cfg))
 " > "$DOCKER_CONFIG_DIR/config.json" 2>/dev/null || echo '{"auths":{}}' > "$DOCKER_CONFIG_DIR/config.json"
-        else
-            echo '{"auths":{}}' > "$DOCKER_CONFIG_DIR/config.json"
+            else
+                echo '{"auths":{}}' > "$DOCKER_CONFIG_DIR/config.json"
+            fi
+            export DOCKER_CONFIG="$DOCKER_CONFIG_DIR"
         fi
-        export DOCKER_CONFIG="$DOCKER_CONFIG_DIR"
-    fi
 
-    echo -e "${C_LBL}${L_INIT_PULL}${C_RST}"
-    D_VER="$("${CONTAINER_CMD[@]}" --version 2>/dev/null | head -1)"
-    C_VER="$("${COMPOSE_CMD[@]}" version 2>/dev/null | head -1)"
-    [ -z "$C_VER" ] && C_VER="$("${COMPOSE_CMD[@]}" --version 2>/dev/null | head -1)"
-    echo -e "  ${C_GRY}-${C_RST} ${L_INIT_DOCKER_VER}: ${C_VAL}${D_VER}${C_RST}"
-    echo -e "  ${C_GRY}-${C_RST} ${L_INIT_COMPOSE_VER}: ${C_VAL}${C_VER}${C_RST}"
-    echo -e "${L_INIT_USING} ${CONTAINER_LABEL} + ${COMPOSE_LABEL}"
+        echo -e "${C_LBL}${L_INIT_PULL}${C_RST}"
+        D_VER="$("${CONTAINER_CMD[@]}" --version 2>/dev/null | head -1)"
+        C_VER="$("${COMPOSE_CMD[@]}" version 2>/dev/null | head -1)"
+        [ -z "$C_VER" ] && C_VER="$("${COMPOSE_CMD[@]}" --version 2>/dev/null | head -1)"
+        echo -e "  ${C_GRY}-${C_RST} ${L_INIT_DOCKER_VER}: ${C_VAL}${D_VER}${C_RST}"
+        echo -e "  ${C_GRY}-${C_RST} ${L_INIT_COMPOSE_VER}: ${C_VAL}${C_VER}${C_RST}"
+        echo -e "${L_INIT_USING} ${CONTAINER_LABEL} + ${COMPOSE_LABEL}"
+    fi
 fi
 
 # Корень
@@ -2015,4 +2036,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=0a431c349ab55dd99a2a88a00690046f
+# checksum:MD5=cd24d6ab6dd0376620f7d85231b28b29
