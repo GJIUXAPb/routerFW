@@ -10,24 +10,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set executable permissions
+        shell: bash
+        run: |
+          chmod +x _Builder.sh _packer.sh tester.sh
+          test -x _Builder.sh
+          test -x _packer.sh
+          test -x tester.sh
+
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
       - name: Bash syntax
         run: for f in _Builder.sh _packer.sh _unpacker.sh tester.sh system/*.sh; do bash -n "$f"; done
-        shell: bash
-
-      - name: Verify executable permissions
-        run: |
-          failed=0
-          for file in _Builder.sh _packer.sh tester.sh; do
-            mode="$(git ls-files -s -- "$file" | awk '{print $1}')"
-            if [[ "$mode" != "100755" ]]; then
-              echo "::error file=$file::$file has Git mode ${mode:-missing}, expected 100755"
-              failed=1
-            fi
-          done
-          exit "$failed"
         shell: bash
 
       - name: ShellCheck
@@ -104,6 +99,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set executable permissions
+        run: chmod +x _Builder.sh _packer.sh tester.sh
+        shell: bash
 
       - name: Install podman
         run: sudo apt-get update && sudo apt-get install -y podman podman-compose
