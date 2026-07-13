@@ -1457,11 +1457,12 @@ set "RUNTIME_ERROR_MESSAGE_3="
 if defined ROUTERFW_TEST_MODE (
     if /i "%ROUTERFW_RUNTIME%"=="podman" (
         set "CONTAINER_EXE=podman"
-        if /i "%ROUTERFW_TEST_COMPOSE_PROVIDER%"=="standalone" (
+        if /i "%ROUTERFW_TEST_COMPOSE_PROVIDER%"=="plugin" (
+            set "COMPOSE_IS_PLUGIN=1"
+            set "COMPOSE_EXE="
+        ) else (
             set "COMPOSE_IS_PLUGIN=0"
             set "COMPOSE_EXE=podman-compose"
-        ) else (
-            set "COMPOSE_IS_PLUGIN=1"
         )
         exit /b 0
     )
@@ -1551,22 +1552,24 @@ if errorlevel 1 (
     exit /b 1
 )
 set "CONTAINER_EXE=podman"
+podman-compose --version >nul 2>&1
+if not errorlevel 1 (
+    set "COMPOSE_IS_PLUGIN=0"
+    set "COMPOSE_EXE=podman-compose"
+    exit /b 0
+)
 podman compose version >nul 2>&1
 if not errorlevel 1 (
     set "COMPOSE_IS_PLUGIN=1"
     set "COMPOSE_EXE="
     exit /b 0
 )
-podman-compose --version >nul 2>&1
 if errorlevel 1 (
     set "RUNTIME_ERROR_MESSAGE_1=%L_ERR_COMPOSE_PROVIDER_MISSING%"
     set "RUNTIME_ERROR_MESSAGE_2=%L_ERR_COMPOSE_PROVIDER_MSG%"
     set "RUNTIME_ERROR_MESSAGE_3=%L_ERR_PODMAN_MSG%"
     exit /b 1
 )
-set "COMPOSE_IS_PLUGIN=0"
-set "COMPOSE_EXE=podman-compose"
-exit /b 0
 
 :RUN_COMPOSE
 setlocal EnableDelayedExpansion
@@ -2290,4 +2293,4 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJlYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=5bbff2f19890f6966b3aae2bbde2cd35
+:: checksum:MD5=bb40acecc361e16b31a77939a219a7ce

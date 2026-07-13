@@ -1,5 +1,7 @@
 #!/bin/bash
 # file: _packer.sh
+set -o pipefail
+
 PACKER_VER="2.6"
 # Multi-threaded Base64 Resource Storage (checksum). Версия: PACKER_VER
 bash ./_Builder.sh check-all
@@ -80,6 +82,10 @@ FILES=(
 
 TEMP_DIR="temp_packer_sh"
 NEW_UNPACKER="_unpacker.sh"
+
+cleanup() {
+    rm -rf "$TEMP_DIR"
+}
 
 # Очистка
 rm -f "$NEW_UNPACKER"
@@ -186,10 +192,14 @@ process_file() {
     local staged="$temp_dir/$id.staged"
     local hash_out="$temp_dir/$id.md5"
 
-    if [ -f "$file" ]; then
-        # Подготовка файла (Оригинальная логика AWK)
-        # Удаляет BOM, CRLF и старый checksum
-        awk '
+    if [ ! -f "$file" ]; then
+        echo -e "${C_ERR}   [ERROR] Required file '$file' not found.${C_RST}" >&2
+        return 1
+    fi
+
+    # Подготовка файла (Оригинальная логика AWK)
+    # Удаляет BOM, CRLF и старый checksum
+    if ! awk '
         BEGIN { has_cr = 0 }
         {
             if (NR == 1 && /\r$/) has_cr = 1;
@@ -211,46 +221,76 @@ process_file() {
             for (i = 1; i <= last; i++) {
                 printf "%s%s", lines[i], eol;
             }
-        }' "$file" > "$staged"
-        
-        # Считаем хеш (для staged версии без checksum строки)
-        local hash
-        hash=$(md5sum < "$staged" | cut -d' ' -f1)
-        hash="${hash,,}"
-        
-        local prefix
-        prefix=$(checksum_comment_prefix "$file")
-        
-        # Дописываем новую checksum строку
-        printf '%s checksum:MD5=%s' "$prefix" "$hash" >> "$staged"
-
-        # Распаковщик проверяет целостность фактически встроенного payload.
-        local payload_hash
-        payload_hash=$(md5sum < "$staged" | cut -d' ' -f1)
-        payload_hash="${payload_hash,,}"
-        echo "$payload_hash" > "$hash_out"
-        
-        echo "" > "$out"
-        echo "# BEGIN_B64_ $file" >> "$out"
-        base64 "$staged" >> "$out"
-        echo "# END_B64_ $file" >> "$out"
+        }' "$file" > "$staged"; then
         rm -f "$staged"
-    else
-        # Заглушка
-        echo "" > "$out"
-        echo "unknown_hash" > "$hash_out"
-        echo -e "${C_ERR}   [SKIP] Файл '$file' не найден.${C_RST}"
+        echo -e "${C_ERR}   [ERROR] Failed to stage '$file'.${C_RST}" >&2
+        return 1
     fi
+
+    # Считаем хеш (для staged версии без checksum строки)
+    local hash
+    if ! hash=$(md5sum < "$staged" | cut -d' ' -f1); then
+        rm -f "$staged"
+        echo -e "${C_ERR}   [ERROR] Failed to hash '$file'.${C_RST}" >&2
+        return 1
+    fi
+    hash="${hash,,}"
+
+    local prefix
+    prefix=$(checksum_comment_prefix "$file")
+
+    # Дописываем новую checksum строку
+    if ! printf '%s checksum:MD5=%s' "$prefix" "$hash" >> "$staged"; then
+        rm -f "$staged"
+        echo -e "${C_ERR}   [ERROR] Failed to append checksum for '$file'.${C_RST}" >&2
+        return 1
+    fi
+
+    # Распаковщик проверяет целостность фактически встроенного payload.
+    local payload_hash
+    if ! payload_hash=$(md5sum < "$staged" | cut -d' ' -f1); then
+        rm -f "$staged"
+        echo -e "${C_ERR}   [ERROR] Failed to hash payload for '$file'.${C_RST}" >&2
+        return 1
+    fi
+    payload_hash="${payload_hash,,}"
+    if ! echo "$payload_hash" > "$hash_out"; then
+        rm -f "$staged"
+        echo -e "${C_ERR}   [ERROR] Failed to write payload hash for '$file'.${C_RST}" >&2
+        return 1
+    fi
+
+    {
+        echo ""
+        echo "# BEGIN_B64_ $file"
+        base64 "$staged"
+        echo "# END_B64_ $file"
+    } > "$out"
+    local rc=$?
+    rm -f "$staged"
+    if [ "$rc" -ne 0 ]; then
+        rm -f "$out"
+        echo -e "${C_ERR}   [ERROR] Failed to encode '$file'.${C_RST}" >&2
+        return 1
+    fi
+
     # Сигнализируем о готовности
-    touch "$ready"
+    touch "$ready" || return 1
 }
 
 # Запуск процессов в фоне
+pids=()
 for i in "${!FILES[@]}"; do
-    process_file "${FILES[$i]}" "$i" "$TEMP_DIR" &
+    (
+        process_file "${FILES[$i]}" "$i" "$TEMP_DIR"
+        rc=$?
+        touch "$TEMP_DIR/$i.ready" 2>/dev/null || true
+        exit "$rc"
+    ) &
+    pids+=("$!")
 done
 
-# Цикл ожидания
+# Цикл ожидания прогресса
 TOTAL=${#FILES[@]}
 while true; do
     DONE=$(ls -1 "$TEMP_DIR"/*.ready 2>/dev/null | wc -l)
@@ -262,6 +302,17 @@ while true; do
 done
 echo ""
 
+worker_failed=0
+for pid in "${pids[@]}"; do
+    wait "$pid" || worker_failed=1
+done
+
+if [ "$worker_failed" -ne 0 ]; then
+    echo -e "${C_ERR}[ERROR] One or more packer workers failed.${C_RST}" >&2
+    cleanup
+    exit 1
+fi
+
 echo -e "[PACKER] Все потоки завершены. Генерация логики и сборка..."
 
 # --- 4. Финализация распаковщика ---
@@ -271,11 +322,12 @@ for i in "${!FILES[@]}"; do
     FILE="${FILES[$i]}"
     HASH_FILE="$TEMP_DIR/$i.md5"
     
-    if [ -f "$HASH_FILE" ]; then
-        F_HASH=$(cat "$HASH_FILE")
-    else
-        F_HASH="unknown"
+    if [ ! -f "$HASH_FILE" ]; then
+        echo -e "${C_ERR}[ERROR] Missing worker hash: $HASH_FILE${C_RST}" >&2
+        cleanup
+        exit 1
     fi
+    F_HASH=$(cat "$HASH_FILE")
 
     IS_PROTECTED=0
     [[ "$FILE" == profiles/* ]] && IS_PROTECTED=1
@@ -314,6 +366,10 @@ EOF
 for i in "${!FILES[@]}"; do
     if [ -f "$TEMP_DIR/$i.chunk" ]; then
         cat "$TEMP_DIR/$i.chunk" >> "$NEW_UNPACKER"
+    else
+        echo -e "${C_ERR}[ERROR] Missing worker chunk: $TEMP_DIR/$i.chunk${C_RST}" >&2
+        cleanup
+        exit 1
     fi
 done
 
@@ -321,14 +377,17 @@ done
 chmod +x "$NEW_UNPACKER"
 
 # Удаляем временную папку
-rm -rf "$TEMP_DIR"
+cleanup
 
 # --- 5. Создание архива ---
 ZIP_DATE=$(date +"%d.%m.%Y_%H-%M")
 ARCHIVE_NAME="routerFW_LinuxDockerBuilder_v$ZIP_DATE.tar.gz"
 
 echo -e "[PACKER] Создание архива $ARCHIVE_NAME..."
-tar -czf "$ARCHIVE_NAME" "$NEW_UNPACKER"
+tar -czf "$ARCHIVE_NAME" "$NEW_UNPACKER" || {
+    echo -e "${C_ERR}[ERROR] Failed to create archive: $ARCHIVE_NAME${C_RST}" >&2
+    exit 1
+}
 
 echo -e "${C_OK}========================================${C_RST}"
 echo -e "  Файл обновлен: $NEW_UNPACKER"

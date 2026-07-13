@@ -366,8 +366,13 @@ resolve_runtime() {
                 CONTAINER_RUNTIME="podman"
                 CONTAINER_LABEL="podman"
                 CONTAINER_CMD=(podman)
-                COMPOSE_CMD=(podman compose)
-                COMPOSE_LABEL="podman compose"
+                if [[ "${ROUTERFW_TEST_COMPOSE_PROVIDER:-}" == "plugin" ]]; then
+                    COMPOSE_CMD=(podman compose)
+                    COMPOSE_LABEL="podman compose"
+                else
+                    COMPOSE_CMD=(podman-compose)
+                    COMPOSE_LABEL="podman-compose"
+                fi
                 return 0
                 ;;
         esac
@@ -2047,4 +2052,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=23e570c4f4f986d280d2a75313558d4b
+# checksum:MD5=f20e5ee1cd109597f2a1f6311596437b

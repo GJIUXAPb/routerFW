@@ -18,6 +18,11 @@
 /reverse/
 debug.md
 
+# Generated packer artifacts
+/temp_packer_worker_*/
+/temp_packer_sh/
+/_unpacker.bat.new
+
 # Tester (local runs, log overwritten each run)
 tester_log_*.md
 tester_tmp_*_out.txt
