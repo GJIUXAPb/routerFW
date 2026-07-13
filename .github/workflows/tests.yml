@@ -160,9 +160,11 @@ jobs:
         shell: cmd
         env:
           ROUTERFW_TEST_MODE: "1"
+          ROUTERFW_TEST_SKIP_PACKER: "1"
 
       - name: Windows unpacker smoke
         run: |
+          $repo = (Get-Location).Path
           $temp = Join-Path $env:RUNNER_TEMP "routerfw-unpack"
           New-Item -ItemType Directory -Force -Path $temp | Out-Null
           Copy-Item _unpacker.bat $temp
@@ -173,6 +175,74 @@ jobs:
               exit $LASTEXITCODE
             }
             if (-not (Test-Path "system\version.env")) {
+              exit 1
+            }
+          }
+          finally {
+            Pop-Location
+          }
+
+          $enc = New-Object Text.UTF8Encoding($false)
+          foreach ($rel in @("system\podman-compose.yaml", "system\podman-compose-src.yaml", "system\version.env")) {
+            $srcPath = Join-Path $repo $rel
+            $dstPath = Join-Path $temp $rel
+            if (-not (Test-Path -LiteralPath $dstPath)) {
+              Write-Error "Missing unpacked file: $rel"
+              exit 1
+            }
+            $src = [IO.File]::ReadAllText($srcPath, $enc) -replace ([char]13 + [char]10), [char]10
+            $src = $src -replace [char]13, [char]10
+            $dst = [IO.File]::ReadAllText($dstPath, $enc) -replace ([char]13 + [char]10), [char]10
+            $dst = $dst -replace [char]13, [char]10
+            if ($src -ne $dst) {
+              Write-Error "Roundtrip content mismatch: $rel"
+              exit 1
+            }
+          }
+        shell: pwsh
+
+      - name: Windows corrupt unpacker smoke
+        run: |
+          $temp = Join-Path $env:RUNNER_TEMP "routerfw-corrupt-unpack"
+          Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $temp | Out-Null
+
+          $inBlock = $false
+          $done = $false
+          $out = foreach ($line in Get-Content -LiteralPath "_unpacker.bat") {
+            if ($line -eq ":: BEGIN_B64_ system/version.env") {
+              $inBlock = $true
+              $line
+              continue
+            }
+            if ($line -eq ":: END_B64_ system/version.env") {
+              $inBlock = $false
+              $line
+              continue
+            }
+            if ($inBlock -and -not $done -and $line -notmatch "^::") {
+              $done = $true
+              "@@@@"
+              continue
+            }
+            $line
+          }
+
+          if (-not $done) {
+            Write-Error "Could not corrupt system/version.env payload"
+            exit 1
+          }
+
+          [IO.File]::WriteAllLines((Join-Path $temp "_unpacker.bat"), [string[]]$out, (New-Object Text.UTF8Encoding($false)))
+          Push-Location $temp
+          try {
+            cmd /c "call _unpacker.bat" | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Error "Corrupt unpacker unexpectedly succeeded"
+              exit 1
+            }
+            if (Test-Path "system\version.env") {
+              Write-Error "Corrupt payload was written to disk"
               exit 1
             }
           }
