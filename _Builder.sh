@@ -11,20 +11,24 @@ if [ -f "system/version.env" ]; then
 fi
 
 # Bootstrap — dict not yet available
-# Функция очистки при прерывании (Ctrl+C). Вызывается по SIGINT/SIGTERM в любой момент,
-# словарь может быть ещё не загружен — хардкод допустим.
-cleanup_exit() {
+# Функции очистки могут вызваться до загрузки словаря, поэтому сообщения здесь хардкодом.
+cleanup_runtime() {
+    if [[ "${DOCKER_CONFIG_CREATED:-0}" == "1" && -n "${DOCKER_CONFIG_DIR:-}" ]]; then
+        rm -rf -- "$DOCKER_CONFIG_DIR"
+    fi
+}
+
+cleanup_interrupt() {
     echo -e "\n${C_ERR}[INTERRUPT]${C_RST} Cleaning up running containers..."
     if [[ "${RUNTIME_READY:-0}" == "1" ]] && declare -F release_locks >/dev/null 2>&1; then
         release_locks "ALL"
     fi
-    if [[ "${DOCKER_CONFIG_CREATED:-0}" == "1" ]]; then
-        rm -rf "$PROJECT_DIR/.docker_tmp"
-    fi
+    cleanup_runtime
     echo -e "${C_RST}"
     exit 130
 }
-trap cleanup_exit SIGINT SIGTERM
+trap cleanup_runtime EXIT
+trap cleanup_interrupt SIGINT SIGTERM
 
 # Настройка цветов ANSI
 ESC=$(printf '\033')
@@ -222,6 +226,7 @@ RUNTIME_ERROR_MESSAGE_3=""
 ROUTERFW_RUNTIME="${RUNTIME_OVERRIDE,,}"
 RUNTIME_READY=0
 DOCKER_CONFIG_CREATED=0
+DOCKER_CONFIG_DIR=""
 
 compose_files_for() {
     local base="$1"
@@ -397,10 +402,14 @@ resolve_runtime() {
 
 fix_output_ownership() {
     local output_dir="$1"
+    local comp_file="${2:-}"
+    local proj_name="${3:-}"
+    local service="${4:-}"
+    local container_output_dir="${5:-/output}"
     local uid
     [ -d "$output_dir" ] || return 0
     if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-        run_container run --rm -v "$(pwd)/${output_dir#./}:/work" alpine chown -R "$(id -u):$(id -g)" /work
+        run_compose "$comp_file" -p "$proj_name" run --rm --entrypoint chown "$service" -R "$(id -u):$(id -g)" "$container_output_dir"
     else
         [ -w "$output_dir" ] || return 1
         uid="$(id -u)"
@@ -433,8 +442,24 @@ if [ "$RUNTIME_REQUIRED" -eq 1 ]; then
     export ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME"
 
     if [ -n "${ROUTERFW_TEST_COMPOSE_BASE:-}" ]; then
-        eval "set -- ${ROUTERFW_TEST_COMPOSE_ARGS:-}"
-        run_compose "$ROUTERFW_TEST_COMPOSE_BASE" "$@"
+        compose_test_args=()
+        if [ -n "${ROUTERFW_TEST_COMPOSE_ARGS:-}" ]; then
+            if ! command -v python3 >/dev/null 2>&1; then
+                echo -e "${C_ERR}[TEST] python3 is required to parse ROUTERFW_TEST_COMPOSE_ARGS safely.${C_RST}"
+                exit 1
+            fi
+            mapfile -d '' -t compose_test_args < <(
+                ROUTERFW_TEST_COMPOSE_ARGS_PAYLOAD="$ROUTERFW_TEST_COMPOSE_ARGS" python3 -c '
+import os
+import shlex
+import sys
+
+for arg in shlex.split(os.environ.get("ROUTERFW_TEST_COMPOSE_ARGS_PAYLOAD", "")):
+    sys.stdout.write(arg + "\0")
+'
+            )
+        fi
+        run_compose "$ROUTERFW_TEST_COMPOSE_BASE" "${compose_test_args[@]}"
         exit $?
     fi
 
@@ -442,25 +467,28 @@ if [ "$RUNTIME_REQUIRED" -eq 1 ]; then
         echo -e "  ${C_GRY}-${C_RST} ${L_INIT_DOCKER_VER}: ${C_KEY}${CONTAINER_LABEL} (TEST MODE)${C_RST}"
         echo -e "  ${C_GRY}-${C_RST} ${L_INIT_COMPOSE_VER}: ${C_KEY}${COMPOSE_LABEL} (TEST MODE)${C_RST}"
     else
-        # === ФИКС DOCKER CREDENTIALS ===
-        # Копируем реальный конфиг (с proxy/dns настройками), но убираем credsStore
-        # чтобы не падала авторизация в безголовых окружениях
+        # Используем временный Docker config без сохранённых registry-токенов.
         if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            export DOCKER_CONFIG_DIR="$PROJECT_DIR/.docker_tmp"
-            mkdir -p "$DOCKER_CONFIG_DIR"
+            old_umask=$(umask)
+            umask 077
+            DOCKER_CONFIG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/routerfw-docker.XXXXXX")" || exit 1
+            umask "$old_umask"
+            chmod 700 "$DOCKER_CONFIG_DIR" 2>/dev/null || true
             DOCKER_CONFIG_CREATED=1
             _REAL_CFG="$HOME/.docker/config.json"
             if [ -f "$_REAL_CFG" ] && command -v python3 &>/dev/null; then
-                python3 -c "
+                REAL_DOCKER_CONFIG="$_REAL_CFG" python3 -c "
 import json, sys
-with open('$_REAL_CFG') as f:
+import os
+with open(os.environ['REAL_DOCKER_CONFIG']) as f:
     cfg = json.load(f)
 cfg.pop('credsStore', None)
 cfg.pop('credHelpers', None)
+cfg.pop('auths', None)
 print(json.dumps(cfg))
-" > "$DOCKER_CONFIG_DIR/config.json" 2>/dev/null || echo '{"auths":{}}' > "$DOCKER_CONFIG_DIR/config.json"
+" > "$DOCKER_CONFIG_DIR/config.json" 2>/dev/null || echo '{}' > "$DOCKER_CONFIG_DIR/config.json"
             else
-                echo '{"auths":{}}' > "$DOCKER_CONFIG_DIR/config.json"
+                echo '{}' > "$DOCKER_CONFIG_DIR/config.json"
             fi
             export DOCKER_CONFIG="$DOCKER_CONFIG_DIR"
         fi
@@ -530,12 +558,14 @@ build_routine() {
         export HOST_PKGS_DIR="./custom_packages/$p_id"
         local proj_name="build_$p_id"
         local comp_file="system/docker-compose.yaml"
+        local container_output_dir="/output/imagebuilder/$p_id"
         [ $is_legacy -eq 1 ] && local service="builder-oldwrt" || local service="builder-openwrt"
     else
         export HOST_OUTPUT_DIR="./firmware_output/sourcebuilder/$p_id"
         export HOST_PKGS_DIR="./src_packages/$p_id"
         local proj_name="srcbuild_$p_id"
         local comp_file="system/docker-compose-src.yaml"
+        local container_output_dir="/output"
         [ $is_legacy -eq 1 ] && local service="builder-src-oldwrt" || local service="builder-src-openwrt"
     fi
 
@@ -587,7 +617,7 @@ build_routine() {
     # === FIX 3: ВОССТАНОВЛЕНИЕ ПРАВ (ext4/Linux) ===
     if [ "$build_status" -eq 0 ] && [ -d "$HOST_OUTPUT_DIR" ]; then
         # Для docker восстанавливаем владельца явно, для podman убеждаемся, что хостовый каталог доступен пользователю.
-        fix_output_ownership "$HOST_OUTPUT_DIR"
+        fix_output_ownership "$HOST_OUTPUT_DIR" "$comp_file" "$proj_name" "$service" "$container_output_dir"
         local ownership_status=$?
         if [ "$ownership_status" -ne 0 ]; then
             echo -e "${C_ERR}[ERROR] Failed to restore output ownership for ${HOST_OUTPUT_DIR}.${C_RST}"
@@ -706,11 +736,51 @@ run_build_all() {
     local pids=()
     declare -A pid_map
     declare -A start_time_map
+    local max_jobs="${ROUTERFW_JOBS:-2}"
+    if ! [[ "$max_jobs" =~ ^[1-9][0-9]*$ ]]; then
+        echo -e "${C_ERR}[ERROR] Invalid ROUTERFW_JOBS: ${max_jobs}${C_RST}"
+        return 1
+    fi
+
+    reap_finished_builds() {
+        local keep=()
+        local pid
+        for pid in "${pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                keep+=("$pid")
+                continue
+            fi
+
+            local end_ts start_ts duration dm ds time_str
+            end_ts=$(date +%s)
+            start_ts=${start_time_map[$pid]}
+            duration=$((end_ts - start_ts))
+            dm=$((duration / 60))
+            ds=$((duration % 60))
+            time_str="${dm}m ${ds}s"
+
+            if wait "$pid"; then
+                success_profiles+=("${pid_map[$pid]}")
+                printf "${C_OK}${L_LOG_OK_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
+            else
+                overall_status=1
+                failed_profiles+=("${pid_map[$pid]}")
+                printf "${C_ERR}${L_LOG_FAIL_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
+            fi
+        done
+        pids=("${keep[@]}")
+    }
 
     printf "    %-65s | %s\n" "${C_GRY}${L_LOG_HEAD_PROF}" "${L_LOG_HEAD_FILE}${C_RST}"
     printf "    %s\n" "${C_GRY}--------------------------------------------------------------------------------------------------------------------${C_RST}"
+    echo -e "    ${C_GRY}Jobs limit: ${max_jobs}${C_RST}"
 
     for p in "${profiles[@]}"; do
+        while [ ${#pids[@]} -ge "$max_jobs" ]; do
+            reap_finished_builds
+            [ ${#pids[@]} -ge "$max_jobs" ] && sleep 0.5
+        done
+
         local p_id
         p_id=$(echo "${p%.conf}" | tr -d '\r')
         local log_file="$LOG_DIR/${p_id}.log"
@@ -726,41 +796,17 @@ run_build_all() {
     echo -e "\n${C_OK}${L_ALL_BUILDS_LAUNCHED}${C_RST}"
     echo -e "${C_LBL}${L_MONITOR_HINT}${C_RST}\n"
 
-    local running_pids=("${pids[@]}")
     local spinner=("/" "-" "\\" "|")
     local spin_idx=0
-    while [ ${#running_pids[@]} -gt 0 ]; do
-        local still_running=()
-        for pid in "${running_pids[@]}"; do
-            if kill -0 "$pid" 2>/dev/null; then
-                still_running+=("$pid")
-            else
-                local end_ts start_ts duration dm ds time_str
-                end_ts=$(date +%s)
-                start_ts=${start_time_map[$pid]}
-                duration=$((end_ts - start_ts))
-                dm=$((duration / 60))
-                ds=$((duration % 60))
-                time_str="${dm}m ${ds}s"
-                printf "\r%120s\r" " "
-                if wait "$pid"; then
-                    success_profiles+=("${pid_map[$pid]}")
-                    printf "${C_OK}${L_LOG_OK_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
-                else
-                    overall_status=1
-                    failed_profiles+=("${pid_map[$pid]}")
-                    printf "${C_ERR}${L_LOG_FAIL_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
-                fi
-            fi
-        done
-        running_pids=("${still_running[@]}")
-        if [ ${#running_pids[@]} -gt 0 ]; then
+    while [ ${#pids[@]} -gt 0 ]; do
+        reap_finished_builds
+        if [ ${#pids[@]} -gt 0 ]; then
             local running_names=""
-            for pid in "${running_pids[@]}"; do
+            for pid in "${pids[@]}"; do
                 running_names+="${pid_map[$pid]} "
             done
             [ ${#running_names} -gt 60 ] && running_names="${running_names:0:57}..."
-            printf "\r${C_LBL}[%s]${C_RST} ${L_WAITING_FOR_BUILDS} (%d left): ${C_VAL}%-60s${C_RST}" "${spinner[$spin_idx]}" "${#running_pids[@]}" "$running_names"
+            printf "\r${C_LBL}[%s]${C_RST} ${L_WAITING_FOR_BUILDS} (%d left): ${C_VAL}%-60s${C_RST}" "${spinner[$spin_idx]}" "${#pids[@]}" "$running_names"
         fi
         sleep 0.5
         spin_idx=$(((spin_idx + 1) % 4))
@@ -1175,7 +1221,7 @@ cleanup_logic() {
     if [ "$p_id" == "ALL" ]; then
         # FIX: Ищем тома, заканчивающиеся на _type, независимо от префикса (build_ или srcbuild_)
         local volumes_to_delete
-        volumes_to_delete=$(run_container volume ls -q | grep -E "_(srcbuild|build)_.*_${type}$")
+        volumes_to_delete=$(run_container volume ls -q | grep -E "^(srcbuild|build)_.*_${type}$")
         # Альтернатива, если grep сложный: grep -E ".*_${type}$" (но это опаснее)
         
         if [ -n "$volumes_to_delete" ]; then
@@ -2052,4 +2098,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=f20e5ee1cd109597f2a1f6311596437b
+# checksum:MD5=02a72869a0a48c2b020191ccd67e3e00

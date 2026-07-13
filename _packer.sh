@@ -112,7 +112,7 @@ echo "[UNPACKER] Resource check..."
 
 SKIP_DEFAULTS=0
 if [ -f "profiles/personal.flag" ]; then
-    echo "[INFO] Found personal.flag. Recovering protected files only."
+    echo "[INFO] Personal installation detected. Preserving protected files; repairing core files only when ROUTERFW_REPAIR=1."
     SKIP_DEFAULTS=1
 fi
 
@@ -129,7 +129,12 @@ decode_file() {
             if [ "$actual_hash" = "$hash" ]; then
                 return 0
             fi
-            echo "[WARN] Existing checksum mismatch, recovering: $target"
+            if [ "${ROUTERFW_REPAIR:-0}" != "1" ]; then
+                echo "[WARN] Modified file preserved: $target"
+                return 0
+            fi
+            echo "[WARN] Existing checksum mismatch, repairing: $target"
+            cp -p -- "$target" "${target}.routerfw.bak" 2>/dev/null || cp -- "$target" "${target}.routerfw.bak"
         else
             return 0
         fi

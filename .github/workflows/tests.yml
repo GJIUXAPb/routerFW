@@ -4,6 +4,13 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux-checks:
     runs-on: ubuntu-latest
@@ -11,6 +18,8 @@ jobs:
       TERM: xterm
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set executable permissions
         shell: bash
@@ -34,7 +43,7 @@ jobs:
         shell: bash
 
       - name: ShellCheck
-        run: shellcheck --severity=error _Builder.sh tester.sh system/*.sh
+        run: shellcheck --severity=error _Builder.sh _packer.sh tester.sh system/*.sh
 
       - name: Localization keys
         run: diff <(grep -E '^(L_|H_)' system/lang/ru.env | sed 's/=.*//' | sort) <(grep -E '^(L_|H_)' system/lang/en.env | sed 's/=.*//' | sort)
@@ -122,6 +131,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Windows packer smoke
         run: |
@@ -181,6 +192,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set executable permissions
         run: chmod +x _Builder.sh _packer.sh tester.sh
@@ -218,6 +231,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set executable permissions
         run: chmod +x _Builder.sh _packer.sh tester.sh

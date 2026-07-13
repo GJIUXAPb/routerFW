@@ -1,5 +1,5 @@
 @echo off
-setlocal enabledelayedexpansion    
+setlocal enabledelayedexpansion
 chcp 65001 >nul
 
 :: =========================================================
@@ -11,81 +11,83 @@ echo [UNPACKER] Resource check...
 :: Проверка флага первоначальной настройки
 set "SKIP_DEFAULTS=0"
 if exist "profiles\personal.flag" (
-    echo [INFO] Found personal.flag. Recovering protected files only.
+    echo [INFO] Personal installation detected. Preserving protected files; repairing core files only when ROUTERFW_REPAIR=1.
     set "SKIP_DEFAULTS=1"
 )
 
-call :DECODE_FILE "system/openssl.cnf" "d92ecacda99691bda8e5f5b6f7843bfe" || exit /b 1 
-call :DECODE_FILE "system/docker-compose.yaml" "96ea81280fdc19c91edda371d1069cf5" || exit /b 1 
-call :DECODE_FILE "system/docker-compose-src.yaml" "b63240a133e235d7334deda7877d82b8" || exit /b 1 
-call :DECODE_FILE "system/podman-compose.yaml" "ad21256108f8b89230d5ad0fabb42c66" || exit /b 1 
-call :DECODE_FILE "system/podman-compose-src.yaml" "6f5ce3bc3e41b20d8a77fafac9e4b155" || exit /b 1 
-call :DECODE_FILE "system/ib_builder.sh" "7683363b2c974b63fb63e8f51f490961" || exit /b 1 
-call :DECODE_FILE "system/src_builder.sh" "33bc14ca711ee8e5c6ca3f25cbf47f9d" || exit /b 1 
-call :DECODE_FILE "system/dockerfile" "1a445880a57cd46115df0c14dbe5d9e9" || exit /b 1 
-call :DECODE_FILE "system/dockerfile.legacy" "f35040d2467ee5b71cead10e960679b1" || exit /b 1 
-call :DECODE_FILE "system/src.dockerfile" "17026a270278f0378c1df88975da0bef" || exit /b 1 
-call :DECODE_FILE "system/src.dockerfile.legacy" "ea652c28114bd705939b4a5d88e36219" || exit /b 1 
-call :DECODE_FILE "system/create_profile.ps1" "ab9c22c0a8589a2d8b9138999c1cb705" || exit /b 1 
-call :DECODE_FILE "system/import_ipk.ps1" "40f178b6457bce09e390676246fd500b" || exit /b 1 
-call :DECODE_FILE "system/apk_scanner.ps1" "b755e3914046c61dad4dfe00dc3cecbb" || exit /b 1 
-call :DECODE_FILE "system/version.env" "6f824a3f667bbd20789aba557e966036" || exit /b 1 
-call :DECODE_FILE "system/lang/ru.env" "b236782684bcb34923e1fc8fedde3302" || exit /b 1 
-call :DECODE_FILE "system/lang/en.env" "1642e9c10891a1619e24919df584f03d" || exit /b 1 
-call :DECODE_FILE "scripts/show_pkgs.sh" "12dbbedf9fc4567f601e3c12af933313" || exit /b 1 
-call :DECODE_FILE "_Builder.bat" "11d51efdd619a48608a03847c98c3bef" || exit /b 1 
-call :DECODE_FILE "README.md" "1457f8a6244752adad2b989db0dee8a7" || exit /b 1 
-call :DECODE_FILE "README.en.md" "2ed190663df12cba8e869de5c714ba53" || exit /b 1 
-call :DECODE_FILE "docs\01-introduction.md" "c2ed13fb76ad6dbf0434c904c65a56ba" || exit /b 1 
-call :DECODE_FILE "docs\01-introduction.en.md" "8483e600162a1321701b6a280a22fa91" || exit /b 1 
-call :DECODE_FILE "docs\02-digital-twin.md" "d5319a1338d9f8d0e9a146a18f5abb2e" || exit /b 1 
-call :DECODE_FILE "docs\02-digital-twin.en.md" "db2783ecbd1618c8eeeaea8f389b0583" || exit /b 1 
-call :DECODE_FILE "docs\03-source-build.md" "b4f469f5bf4bbeb59a0e240dc7e9e044" || exit /b 1 
-call :DECODE_FILE "docs\03-source-build.en.md" "4eb78fa40facb7128723c277d887d7d2" || exit /b 1 
-call :DECODE_FILE "docs\04-adv-source-build.md" "0e782ea95ba7409cc9e4ad555fe29480" || exit /b 1 
-call :DECODE_FILE "docs\04-adv-source-build.en.md" "fa2673613d69b63729c9eccf8f0aeba0" || exit /b 1 
-call :DECODE_FILE "docs\05-patch-sys.md" "6b1aed5667edcc2b3d3de30b7e63acff" || exit /b 1 
-call :DECODE_FILE "docs\05-patch-sys.en.md" "dadd38c7d704999788173d8af966c362" || exit /b 1 
-call :DECODE_FILE "docs\06-rax3000m-emmc-flash.md" "a056ce46045aad7058fe21ec8bc9d6cf" || exit /b 1 
-call :DECODE_FILE "docs\06-rax3000m-emmc-flash.en.md" "842f793c65d08d11613a44ed78ebc93e" || exit /b 1 
-call :DECODE_FILE "docs\07-troubleshooting-faq.md" "f43ac742f4775c2acbcb1908e67d5b69" || exit /b 1 
-call :DECODE_FILE "docs\07-troubleshooting-faq.en.md" "a9137f4ceda1bbe1dcc03bed619df20e" || exit /b 1 
-call :DECODE_FILE "docs\index.md" "620dc456887b21f482a23f71b828efba" || exit /b 1 
-call :DECODE_FILE "docs\index.en.md" "019cd81aaa610551e8795393e233bdfc" || exit /b 1 
+call :DECODE_FILE "system/openssl.cnf" "d92ecacda99691bda8e5f5b6f7843bfe" || exit /b 1
+call :DECODE_FILE "system/docker-compose.yaml" "96ea81280fdc19c91edda371d1069cf5" || exit /b 1
+call :DECODE_FILE "system/docker-compose-src.yaml" "b63240a133e235d7334deda7877d82b8" || exit /b 1
+call :DECODE_FILE "system/podman-compose.yaml" "ad21256108f8b89230d5ad0fabb42c66" || exit /b 1
+call :DECODE_FILE "system/podman-compose-src.yaml" "6f5ce3bc3e41b20d8a77fafac9e4b155" || exit /b 1
+call :DECODE_FILE "system/ib_builder.sh" "7683363b2c974b63fb63e8f51f490961" || exit /b 1
+call :DECODE_FILE "system/src_builder.sh" "33bc14ca711ee8e5c6ca3f25cbf47f9d" || exit /b 1
+call :DECODE_FILE "system/dockerfile" "1a445880a57cd46115df0c14dbe5d9e9" || exit /b 1
+call :DECODE_FILE "system/dockerfile.legacy" "f35040d2467ee5b71cead10e960679b1" || exit /b 1
+call :DECODE_FILE "system/src.dockerfile" "17026a270278f0378c1df88975da0bef" || exit /b 1
+call :DECODE_FILE "system/src.dockerfile.legacy" "ea652c28114bd705939b4a5d88e36219" || exit /b 1
+call :DECODE_FILE "system/create_profile.ps1" "ab9c22c0a8589a2d8b9138999c1cb705" || exit /b 1
+call :DECODE_FILE "system/import_ipk.ps1" "40f178b6457bce09e390676246fd500b" || exit /b 1
+call :DECODE_FILE "system/apk_scanner.ps1" "b755e3914046c61dad4dfe00dc3cecbb" || exit /b 1
+call :DECODE_FILE "system/version.env" "6f824a3f667bbd20789aba557e966036" || exit /b 1
+call :DECODE_FILE "system/lang/ru.env" "b236782684bcb34923e1fc8fedde3302" || exit /b 1
+call :DECODE_FILE "system/lang/en.env" "1642e9c10891a1619e24919df584f03d" || exit /b 1
 if "%SKIP_DEFAULTS%"=="0" (
-    call :DECODE_FILE "scripts\etc\uci-defaults\99-permissions.sh" "2410af5830bebfcf75938bb5dbead2e3" || exit /b 1 
+    call :DECODE_FILE "scripts/show_pkgs.sh" "12dbbedf9fc4567f601e3c12af933313" || exit /b 1
+)
+call :DECODE_FILE "_Builder.bat" "11d51efdd619a48608a03847c98c3bef" || exit /b 1
+call :DECODE_FILE "README.md" "1457f8a6244752adad2b989db0dee8a7" || exit /b 1
+call :DECODE_FILE "README.en.md" "2ed190663df12cba8e869de5c714ba53" || exit /b 1
+call :DECODE_FILE "docs\01-introduction.md" "c2ed13fb76ad6dbf0434c904c65a56ba" || exit /b 1
+call :DECODE_FILE "docs\01-introduction.en.md" "8483e600162a1321701b6a280a22fa91" || exit /b 1
+call :DECODE_FILE "docs\02-digital-twin.md" "d5319a1338d9f8d0e9a146a18f5abb2e" || exit /b 1
+call :DECODE_FILE "docs\02-digital-twin.en.md" "db2783ecbd1618c8eeeaea8f389b0583" || exit /b 1
+call :DECODE_FILE "docs\03-source-build.md" "b4f469f5bf4bbeb59a0e240dc7e9e044" || exit /b 1
+call :DECODE_FILE "docs\03-source-build.en.md" "4eb78fa40facb7128723c277d887d7d2" || exit /b 1
+call :DECODE_FILE "docs\04-adv-source-build.md" "0e782ea95ba7409cc9e4ad555fe29480" || exit /b 1
+call :DECODE_FILE "docs\04-adv-source-build.en.md" "fa2673613d69b63729c9eccf8f0aeba0" || exit /b 1
+call :DECODE_FILE "docs\05-patch-sys.md" "6b1aed5667edcc2b3d3de30b7e63acff" || exit /b 1
+call :DECODE_FILE "docs\05-patch-sys.en.md" "dadd38c7d704999788173d8af966c362" || exit /b 1
+call :DECODE_FILE "docs\06-rax3000m-emmc-flash.md" "a056ce46045aad7058fe21ec8bc9d6cf" || exit /b 1
+call :DECODE_FILE "docs\06-rax3000m-emmc-flash.en.md" "842f793c65d08d11613a44ed78ebc93e" || exit /b 1
+call :DECODE_FILE "docs\07-troubleshooting-faq.md" "f43ac742f4775c2acbcb1908e67d5b69" || exit /b 1
+call :DECODE_FILE "docs\07-troubleshooting-faq.en.md" "a9137f4ceda1bbe1dcc03bed619df20e" || exit /b 1
+call :DECODE_FILE "docs\index.md" "620dc456887b21f482a23f71b828efba" || exit /b 1
+call :DECODE_FILE "docs\index.en.md" "019cd81aaa610551e8795393e233bdfc" || exit /b 1
+if "%SKIP_DEFAULTS%"=="0" (
+    call :DECODE_FILE "scripts\etc\uci-defaults\99-permissions.sh" "2410af5830bebfcf75938bb5dbead2e3" || exit /b 1
 )
 if "%SKIP_DEFAULTS%"=="0" (
-    call :DECODE_FILE "scripts\diag.sh" "d35f07e8f6c30f01c22ed74e8ea08c66" || exit /b 1 
+    call :DECODE_FILE "scripts\diag.sh" "d35f07e8f6c30f01c22ed74e8ea08c66" || exit /b 1
 )
 if "%SKIP_DEFAULTS%"=="0" (
-    call :DECODE_FILE "scripts\hooks.sh" "b1675a8e68f2ae95cffa7454556310d6" || exit /b 1 
+    call :DECODE_FILE "scripts\hooks.sh" "b1675a8e68f2ae95cffa7454556310d6" || exit /b 1
 )
 if "%SKIP_DEFAULTS%"=="0" (
-    call :DECODE_FILE "scripts\upgrade.sh" "5f1b538b905bcffb0b2238e7b4919c60" || exit /b 1 
+    call :DECODE_FILE "scripts\upgrade.sh" "5f1b538b905bcffb0b2238e7b4919c60" || exit /b 1
 )
 if "%SKIP_DEFAULTS%"=="0" (
-    call :DECODE_FILE "scripts\packager.sh" "8f6cd1ae833d2a9b6a486fa7c13e29c8" || exit /b 1 
+    call :DECODE_FILE "scripts\packager.sh" "8f6cd1ae833d2a9b6a486fa7c13e29c8" || exit /b 1
 )
 if "%SKIP_DEFAULTS%"=="0" (
-    call :DECODE_FILE "profiles\giga_24105_main_full.conf" "53e0de927aa010d8c7b70a22d37dadb2" || exit /b 1 
+    call :DECODE_FILE "profiles\giga_24105_main_full.conf" "53e0de927aa010d8c7b70a22d37dadb2" || exit /b 1
 )
 if "%SKIP_DEFAULTS%"=="0" (
-    call :DECODE_FILE "profiles\rax3000m_emmc_test_new.conf" "2b9ca99a2bda6ab85cd69e4fd73f9120" || exit /b 1 
+    call :DECODE_FILE "profiles\rax3000m_emmc_test_new.conf" "2b9ca99a2bda6ab85cd69e4fd73f9120" || exit /b 1
 )
 if "%SKIP_DEFAULTS%"=="0" (
-    call :DECODE_FILE "profiles\tplink_841n_v9_190710_full.conf" "426b97e7a105716c189a42dc15dd8a32" || exit /b 1 
+    call :DECODE_FILE "profiles\tplink_841n_v9_190710_full.conf" "426b97e7a105716c189a42dc15dd8a32" || exit /b 1
 )
 if "%SKIP_DEFAULTS%"=="0" (
-    call :DECODE_FILE "profiles\friendlyarm_nanopi_r3s_24105_ow_full.conf" "e2bbca370e3c63683836e1d9342b2f9c" || exit /b 1 
+    call :DECODE_FILE "profiles\friendlyarm_nanopi_r3s_24105_ow_full.conf" "e2bbca370e3c63683836e1d9342b2f9c" || exit /b 1
 )
 if "%SKIP_DEFAULTS%"=="0" (
-    call :DECODE_FILE "custom_files\rax3000m_emmc_test_new\hooks.sh" "b2afe94b69fbcb42c7ec1bed77a665e0" || exit /b 1 
+    call :DECODE_FILE "custom_files\rax3000m_emmc_test_new\hooks.sh" "b2afe94b69fbcb42c7ec1bed77a665e0" || exit /b 1
 )
 
 :: Создаем флаг (если папки нет - создаем)
 if not exist "profiles" md "profiles" 2>nul
-if not exist "profiles\personal.flag" (    
+if not exist "profiles\personal.flag" (
 <nul set /p "=Initial setup done." > "profiles\personal.flag"
     echo [INFO] Created flag profiles\personal.flag
 )
@@ -98,7 +100,7 @@ exit /b 0
 
 :DECODE_FILE
     echo [UNPACK] Recover: %~1 - md5( %~2)
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "function Md5($p){ $m=[Security.Cryptography.MD5]::Create(); $s=[IO.File]::OpenRead($p); try { $bytes=$m.ComputeHash($s) } finally { $s.Dispose(); $m.Dispose() }; $sb=New-Object Text.StringBuilder; foreach($b in $bytes){ [void]$sb.Append($b.ToString('x2')) }; $sb.ToString() }; $ext='%~1'; $hash='%~2'.Trim().ToLowerInvariant(); $self='%~f0'; if(Test-Path -LiteralPath $ext){ if($hash -and $hash -ne 'unknown'){ $existing=Md5 $ext; if($existing -eq $hash){ exit 0 }; Write-Host ('[WARN] Existing checksum mismatch, recovering: ' + $ext) } else { exit 0 } }; $content=Get-Content -LiteralPath $self; $start=$false; $b64=''; foreach($line in $content){ if($line -eq (':: BEGIN_B64_ ' + $ext)){ $start=$true; continue }; if($line -eq (':: END_B64_ ' + $ext)){ $start=$false; break }; if($start){ $b64 += $line.Trim() } }; if(-not $b64){ Write-Error ('Missing payload: ' + $ext); exit 1 }; $tmp=[IO.Path]::GetTempFileName(); try { [IO.File]::WriteAllBytes($tmp,[Convert]::FromBase64String($b64)); if($hash -and $hash -ne 'unknown'){ $actual=Md5 $tmp; if($actual -ne $hash){ Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; Write-Error ('Checksum mismatch: ' + $ext + ' expected ' + $hash + ' actual ' + $actual); exit 1 } }; $dir=Split-Path -Parent $ext; if($dir){ [void](New-Item -ItemType Directory -Force -Path $dir) }; Move-Item -LiteralPath $tmp -Destination $ext -Force; exit 0 } catch { if(Test-Path -LiteralPath $tmp){ Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }; Write-Error $_.Exception.Message; exit 1 }"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "function Md5($p){ $m=[Security.Cryptography.MD5]::Create(); $s=[IO.File]::OpenRead($p); try { $bytes=$m.ComputeHash($s) } finally { $s.Dispose(); $m.Dispose() }; $sb=New-Object Text.StringBuilder; foreach($b in $bytes){ [void]$sb.Append($b.ToString('x2')) }; $sb.ToString() }; $ext='%~1'; $hash='%~2'.Trim().ToLowerInvariant(); $self='%~f0'; if(Test-Path -LiteralPath $ext){ if($hash -and $hash -ne 'unknown'){ $existing=Md5 $ext; if($existing -eq $hash){ exit 0 }; if($env:ROUTERFW_REPAIR -ne '1'){ Write-Host ('[WARN] Modified file preserved: ' + $ext); exit 0 }; Write-Host ('[WARN] Existing checksum mismatch, repairing: ' + $ext); Copy-Item -LiteralPath $ext -Destination ($ext + '.routerfw.bak') -Force -ErrorAction Stop } else { exit 0 } }; $content=Get-Content -LiteralPath $self; $start=$false; $b64=''; foreach($line in $content){ if($line -eq (':: BEGIN_B64_ ' + $ext)){ $start=$true; continue }; if($line -eq (':: END_B64_ ' + $ext)){ $start=$false; break }; if($start){ $b64 += $line.Trim() } }; if(-not $b64){ Write-Error ('Missing payload: ' + $ext); exit 1 }; $tmp=[IO.Path]::GetTempFileName(); try { [IO.File]::WriteAllBytes($tmp,[Convert]::FromBase64String($b64)); if($hash -and $hash -ne 'unknown'){ $actual=Md5 $tmp; if($actual -ne $hash){ Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; Write-Error ('Checksum mismatch: ' + $ext + ' expected ' + $hash + ' actual ' + $actual); exit 1 } }; $dir=Split-Path -Parent $ext; if($dir){ [void](New-Item -ItemType Directory -Force -Path $dir) }; Move-Item -LiteralPath $tmp -Destination $ext -Force; exit 0 } catch { if(Test-Path -LiteralPath $tmp){ Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }; Write-Error $_.Exception.Message; exit 1 }"
     if errorlevel 1 exit /b 1
 exit /b
 

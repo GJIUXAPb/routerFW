@@ -98,7 +98,7 @@ echo [PACKER] Создание структуры распаковщика...
 
 (
     echo @echo off
-    echo setlocal enabledelayedexpansion    
+    echo setlocal enabledelayedexpansion
     echo chcp 65001 ^>nul
     echo.
     echo :: =========================================================
@@ -110,7 +110,7 @@ echo [PACKER] Создание структуры распаковщика...
     echo :: Проверка флага первоначальной настройки
     echo set "SKIP_DEFAULTS=0"
     echo if exist "profiles\personal.flag" ^(
-    echo     echo [INFO] Found personal.flag. Recovering protected files only.
+    echo     echo [INFO] Personal installation detected. Preserving protected files; repairing core files only when ROUTERFW_REPAIR=1.
     echo     set "SKIP_DEFAULTS=1"
     echo ^)
     echo.
@@ -148,24 +148,25 @@ echo [PACKER] Все потоки завершены. Финализация с�
 :: 4.1 Добавляем вызовы функций
 for /L %%i in (1,1,%IDX%) do (
     set "FNAME=!FILE_%%i!"
+    set "CHECK_NAME=!FNAME:/=\!"
     set "IS_PROTECTED=0"
     set "F_HASH=unknown"
     
     if exist "%FULL_TEMP_DIR%\%%i.md5" (
         for /f "usebackq tokens=*" %%H in ("%FULL_TEMP_DIR%\%%i.md5") do set "F_HASH=%%H"
     )
-    
-    echo "!FNAME!" | findstr /C:"profiles\\" >nul && set "IS_PROTECTED=1"
-    echo "!FNAME!" | findstr /C:"firmware_output\\" >nul && set "IS_PROTECTED=1"
-    if /i "!FNAME:~0,13!"=="custom_files\" set "IS_PROTECTED=1"
-    echo "!FNAME!" | findstr /C:"scripts\\" >nul && set "IS_PROTECTED=1"
-    
+
+    echo "!CHECK_NAME!" | findstr /C:"profiles\\" >nul && set "IS_PROTECTED=1"
+    echo "!CHECK_NAME!" | findstr /C:"firmware_output\\" >nul && set "IS_PROTECTED=1"
+    if /i "!CHECK_NAME:~0,13!"=="custom_files\" set "IS_PROTECTED=1"
+    echo "!CHECK_NAME!" | findstr /C:"scripts\\" >nul && set "IS_PROTECTED=1"
+
     if "!IS_PROTECTED!"=="1" (
-        echo if "%%SKIP_DEFAULTS%%"=="0" ^(>> "%NEW_UNPACKER_FILE%"
-        echo     call :DECODE_FILE "!FNAME!" "!F_HASH!" ^|^| exit /b 1 >> "%NEW_UNPACKER_FILE%"
-        echo ^)>> "%NEW_UNPACKER_FILE%"
+        >> "%NEW_UNPACKER_FILE%" echo if "%%SKIP_DEFAULTS%%"=="0" ^(
+        >> "%NEW_UNPACKER_FILE%" echo     call :DECODE_FILE "!FNAME!" "!F_HASH!" ^|^| exit /b 1
+        >> "%NEW_UNPACKER_FILE%" echo ^)
     ) else (
-        echo call :DECODE_FILE "!FNAME!" "!F_HASH!" ^|^| exit /b 1 >> "%NEW_UNPACKER_FILE%"
+        >> "%NEW_UNPACKER_FILE%" echo call :DECODE_FILE "!FNAME!" "!F_HASH!" ^|^| exit /b 1
     )
 )
 
@@ -174,7 +175,7 @@ for /L %%i in (1,1,%IDX%) do (
     echo.
     echo :: Создаем флаг ^(если папки нет - создаем^)
     echo if not exist "profiles" md "profiles" 2^>nul
-    echo if not exist "profiles\personal.flag" ^(    
+    echo if not exist "profiles\personal.flag" ^(
     echo ^<nul set /p "=Initial setup done." ^> "profiles\personal.flag"
     echo     echo [INFO] Created flag profiles\personal.flag
     echo ^)
@@ -187,7 +188,7 @@ for /L %%i in (1,1,%IDX%) do (
     echo.
     echo :DECODE_FILE
     echo     echo [UNPACK] Recover: %%~1 - md5^( %%~2^)
-    echo     powershell -NoProfile -ExecutionPolicy Bypass -Command "function Md5($p){ $m=[Security.Cryptography.MD5]::Create(); $s=[IO.File]::OpenRead($p); try { $bytes=$m.ComputeHash($s) } finally { $s.Dispose(); $m.Dispose() }; $sb=New-Object Text.StringBuilder; foreach($b in $bytes){ [void]$sb.Append($b.ToString('x2')) }; $sb.ToString() }; $ext='%%~1'; $hash='%%~2'.Trim().ToLowerInvariant(); $self='%%~f0'; if(Test-Path -LiteralPath $ext){ if($hash -and $hash -ne 'unknown'){ $existing=Md5 $ext; if($existing -eq $hash){ exit 0 }; Write-Host ('[WARN] Existing checksum mismatch, recovering: ' + $ext) } else { exit 0 } }; $content=Get-Content -LiteralPath $self; $start=$false; $b64=''; foreach($line in $content){ if($line -eq (':: BEGIN_B64_ ' + $ext)){ $start=$true; continue }; if($line -eq (':: END_B64_ ' + $ext)){ $start=$false; break }; if($start){ $b64 += $line.Trim() } }; if(-not $b64){ Write-Error ('Missing payload: ' + $ext); exit 1 }; $tmp=[IO.Path]::GetTempFileName(); try { [IO.File]::WriteAllBytes($tmp,[Convert]::FromBase64String($b64)); if($hash -and $hash -ne 'unknown'){ $actual=Md5 $tmp; if($actual -ne $hash){ Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; Write-Error ('Checksum mismatch: ' + $ext + ' expected ' + $hash + ' actual ' + $actual); exit 1 } }; $dir=Split-Path -Parent $ext; if($dir){ [void](New-Item -ItemType Directory -Force -Path $dir) }; Move-Item -LiteralPath $tmp -Destination $ext -Force; exit 0 } catch { if(Test-Path -LiteralPath $tmp){ Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }; Write-Error $_.Exception.Message; exit 1 }"
+    echo     powershell -NoProfile -ExecutionPolicy Bypass -Command "function Md5($p){ $m=[Security.Cryptography.MD5]::Create(); $s=[IO.File]::OpenRead($p); try { $bytes=$m.ComputeHash($s) } finally { $s.Dispose(); $m.Dispose() }; $sb=New-Object Text.StringBuilder; foreach($b in $bytes){ [void]$sb.Append($b.ToString('x2')) }; $sb.ToString() }; $ext='%%~1'; $hash='%%~2'.Trim().ToLowerInvariant(); $self='%%~f0'; if(Test-Path -LiteralPath $ext){ if($hash -and $hash -ne 'unknown'){ $existing=Md5 $ext; if($existing -eq $hash){ exit 0 }; if($env:ROUTERFW_REPAIR -ne '1'){ Write-Host ('[WARN] Modified file preserved: ' + $ext); exit 0 }; Write-Host ('[WARN] Existing checksum mismatch, repairing: ' + $ext); Copy-Item -LiteralPath $ext -Destination ($ext + '.routerfw.bak') -Force -ErrorAction Stop } else { exit 0 } }; $content=Get-Content -LiteralPath $self; $start=$false; $b64=''; foreach($line in $content){ if($line -eq (':: BEGIN_B64_ ' + $ext)){ $start=$true; continue }; if($line -eq (':: END_B64_ ' + $ext)){ $start=$false; break }; if($start){ $b64 += $line.Trim() } }; if(-not $b64){ Write-Error ('Missing payload: ' + $ext); exit 1 }; $tmp=[IO.Path]::GetTempFileName(); try { [IO.File]::WriteAllBytes($tmp,[Convert]::FromBase64String($b64)); if($hash -and $hash -ne 'unknown'){ $actual=Md5 $tmp; if($actual -ne $hash){ Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; Write-Error ('Checksum mismatch: ' + $ext + ' expected ' + $hash + ' actual ' + $actual); exit 1 } }; $dir=Split-Path -Parent $ext; if($dir){ [void](New-Item -ItemType Directory -Force -Path $dir) }; Move-Item -LiteralPath $tmp -Destination $ext -Force; exit 0 } catch { if(Test-Path -LiteralPath $tmp){ Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }; Write-Error $_.Exception.Message; exit 1 }"
     echo     if errorlevel 1 exit /b 1
     echo exit /b
     echo.
