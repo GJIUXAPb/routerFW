@@ -227,6 +227,25 @@ ROUTERFW_RUNTIME="${RUNTIME_OVERRIDE,,}"
 RUNTIME_READY=0
 DOCKER_CONFIG_CREATED=0
 DOCKER_CONFIG_DIR=""
+DOCKER_WINDOWS_BRIDGE=0
+
+is_wsl_environment() {
+    grep -qi microsoft /proc/version 2>/dev/null
+}
+
+write_compose_env_file() {
+    local env_file="$1"
+    {
+        printf 'SELECTED_CONF=%s\n' "${SELECTED_CONF:-}"
+        printf 'HOST_OUTPUT_DIR=%s\n' "${HOST_OUTPUT_DIR:-}"
+        printf 'HOST_PKGS_DIR=%s\n' "${HOST_PKGS_DIR:-}"
+        printf 'HOST_PATCHES_DIR=%s\n' "${HOST_PATCHES_DIR:-}"
+        printf 'HOST_FILES_DIR=%s\n' "${HOST_FILES_DIR:-}"
+        printf 'ROUTERFW_BIND_RW_SUFFIX=%s\n' "${ROUTERFW_BIND_RW_SUFFIX:-}"
+        printf 'ROUTERFW_BIND_RO_SUFFIX=%s\n' "${ROUTERFW_BIND_RO_SUFFIX:-}"
+        printf 'ROUTERFW_BIND_PROFILES_SUFFIX=%s\n' "${ROUTERFW_BIND_PROFILES_SUFFIX:-}"
+    } > "$env_file"
+}
 
 compose_files_for() {
     local base="$1"
@@ -248,6 +267,11 @@ run_compose() {
     shift
     local compose_args=()
     local env_args=()
+    local compose_env_file=""
+    local compose_output_file=""
+    local compose_attempt=1
+    local compose_max_attempts=3
+    local compose_status=0
     local f
     compose_files_for "$base"
     if [ "$CONTAINER_RUNTIME" = "podman" ]; then
@@ -257,12 +281,18 @@ run_compose() {
             "ROUTERFW_BIND_PROFILES_SUFFIX=:ro,z"
         )
     fi
+    if [ "${DOCKER_WINDOWS_BRIDGE:-0}" = "1" ]; then
+        compose_env_file=".routerfw-compose-env-$$-$RANDOM"
+        write_compose_env_file "$compose_env_file"
+        compose_args+=(--env-file "$compose_env_file")
+    fi
     if [ -n "${ROUTERFW_TEST_COMPOSE_LOG:-}" ]; then
         {
             if [ ${#env_args[@]} -gt 0 ]; then
                 printf '%s ' "${env_args[@]}"
             fi
             printf '%s' "${COMPOSE_CMD[*]}"
+            [ -n "$compose_env_file" ] && printf ' --env-file %s' "$compose_env_file"
             for f in "${COMPOSE_FILES[@]}"; do
                 printf ' -f %s' "$f"
             done
@@ -271,12 +301,35 @@ run_compose() {
             done
             printf '\n'
         } >> "$ROUTERFW_TEST_COMPOSE_LOG"
+        [ -n "$compose_env_file" ] && rm -f -- "$compose_env_file"
         return 0
     fi
     for f in "${COMPOSE_FILES[@]}"; do
         compose_args+=(-f "$f")
     done
+    if [ "${DOCKER_WINDOWS_BRIDGE:-0}" = "1" ]; then
+        while :; do
+            compose_output_file=".routerfw-compose-output-$$-$RANDOM.log"
+            env "${env_args[@]}" "${COMPOSE_CMD[@]}" "${compose_args[@]}" "$@" 2>&1 | tee "$compose_output_file"
+            compose_status=${PIPESTATUS[0]}
+            if [ "$compose_status" -ne 0 ] \
+                && [ "$compose_attempt" -lt "$compose_max_attempts" ] \
+                && grep -q "UtilAcceptVsock" "$compose_output_file" 2>/dev/null; then
+                rm -f -- "$compose_output_file"
+                echo -e "${C_KEY}[WARN]${C_RST} WSL Docker bridge hiccup, retrying compose (${compose_attempt}/${compose_max_attempts})..."
+                sleep $((compose_attempt * 2))
+                compose_attempt=$((compose_attempt + 1))
+                continue
+            fi
+            rm -f -- "$compose_output_file"
+            [ -n "$compose_env_file" ] && rm -f -- "$compose_env_file"
+            return "$compose_status"
+        done
+    fi
     env "${env_args[@]}" "${COMPOSE_CMD[@]}" "${compose_args[@]}" "$@"
+    compose_status=$?
+    [ -n "$compose_env_file" ] && rm -f -- "$compose_env_file"
+    return "$compose_status"
 }
 
 run_container() {
@@ -292,30 +345,44 @@ try_runtime_candidate() {
         docker)
             RUNTIME_ERROR_MESSAGE_1="$L_ERR_DOCKER"
             RUNTIME_ERROR_MESSAGE_2="$L_ERR_DOCKER_MSG"
-            command -v docker >/dev/null 2>&1 || return 1
-            if [ "${RUNTIME_STRICT_PROBE:-0}" = "1" ] && ! docker info >/dev/null 2>&1; then
+            DOCKER_WINDOWS_BRIDGE=0
+            if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+                CONTAINER_CMD=(docker)
+                if docker compose version >/dev/null 2>&1; then
+                    COMPOSE_CMD=(docker compose)
+                    COMPOSE_LABEL="docker compose"
+                elif command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
+                    COMPOSE_CMD=(docker-compose)
+                    COMPOSE_LABEL="docker-compose"
+                else
+                    RUNTIME_ERROR_MESSAGE_1="$L_ERR_COMPOSE_PROVIDER_MISSING"
+                    RUNTIME_ERROR_MESSAGE_2="$L_ERR_COMPOSE_PROVIDER_MSG"
+                    RUNTIME_ERROR_MESSAGE_3="$L_ERR_DOCKER_MSG"
+                    return 1
+                fi
+            elif is_wsl_environment && command -v docker.exe >/dev/null 2>&1 && docker.exe info >/dev/null 2>&1; then
+                CONTAINER_CMD=(docker.exe)
+                DOCKER_WINDOWS_BRIDGE=1
+                if docker.exe compose version >/dev/null 2>&1; then
+                    COMPOSE_CMD=(docker.exe compose)
+                    COMPOSE_LABEL="docker.exe compose"
+                else
+                    RUNTIME_ERROR_MESSAGE_1="$L_ERR_COMPOSE_PROVIDER_MISSING"
+                    RUNTIME_ERROR_MESSAGE_2="$L_ERR_COMPOSE_PROVIDER_MSG"
+                    RUNTIME_ERROR_MESSAGE_3="$L_ERR_DOCKER_MSG"
+                    return 1
+                fi
+            else
                 return 1
             fi
             CONTAINER_RUNTIME="docker"
             CONTAINER_LABEL="docker"
-            CONTAINER_CMD=(docker)
-            if docker compose version >/dev/null 2>&1; then
-                COMPOSE_CMD=(docker compose)
-                COMPOSE_LABEL="docker compose"
-            elif command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
-                COMPOSE_CMD=(docker-compose)
-                COMPOSE_LABEL="docker-compose"
-            else
-                RUNTIME_ERROR_MESSAGE_1="$L_ERR_COMPOSE_PROVIDER_MISSING"
-                RUNTIME_ERROR_MESSAGE_2="$L_ERR_COMPOSE_PROVIDER_MSG"
-                RUNTIME_ERROR_MESSAGE_3="$L_ERR_DOCKER_MSG"
-                return 1
-            fi
             return 0
             ;;
         podman)
             RUNTIME_ERROR_MESSAGE_1="$L_ERR_PODMAN"
             RUNTIME_ERROR_MESSAGE_2="$L_ERR_PODMAN_MSG"
+            DOCKER_WINDOWS_BRIDGE=0
             command -v podman >/dev/null 2>&1 || return 1
             if ! podman info >/dev/null 2>&1; then
                 if command -v podman-machine >/dev/null 2>&1; then
@@ -420,6 +487,7 @@ fix_output_ownership() {
     local container_output_dir="${5:-/output}"
     local uid
     [ -d "$output_dir" ] || return 0
+    [ "${DOCKER_WINDOWS_BRIDGE:-0}" = "1" ] && return 0
     if [ "$CONTAINER_RUNTIME" = "docker" ]; then
         run_compose "$comp_file" -p "$proj_name" run --rm --entrypoint chown "$service" -R "$(id -u):$(id -g)" "$container_output_dir"
     else
@@ -756,7 +824,7 @@ run_build_all() {
     local pids=()
     declare -A pid_map
     declare -A start_time_map
-    local max_jobs="${ROUTERFW_JOBS:-2}"
+    local max_jobs="${ROUTERFW_JOBS:-6}"
     if ! [[ "$max_jobs" =~ ^[1-9][0-9]*$ ]]; then
         echo -e "${C_ERR}[ERROR] Invalid ROUTERFW_JOBS: ${max_jobs}${C_RST}"
         return 1
@@ -2118,4 +2186,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=9fee62bd89e0a071fa996f3e5137a48b
+# checksum:MD5=2eb9d614088391ca23ac3401e2f34812
