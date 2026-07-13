@@ -91,9 +91,6 @@ jobs:
           cp ./_unpacker.sh "$generated_unpacker"
           printf '\n' | ROUTERFW_TEST_MODE=1 bash ./_packer.sh >/dev/null
           cmp -s "$generated_unpacker" ./_unpacker.sh
-          if ! cmp -s "$original_unpacker" ./_unpacker.sh; then
-            echo "::warning::_unpacker.sh differs after regeneration; packer output is deterministic on this runner."
-          fi
         shell: bash
 
       - name: Run bash tester
@@ -101,6 +98,18 @@ jobs:
         shell: bash
         env:
           ROUTERFW_TEST_MODE: "1"
+
+      - name: Linux unpacker smoke
+        run: |
+          set -e
+          temp="$(mktemp -d)"
+          cp ./_unpacker.sh "$temp/"
+          (
+            cd "$temp"
+            bash ./_unpacker.sh
+            test -f system/version.env
+          )
+        shell: bash
 
       - name: Upload Linux tester log
         if: always()
@@ -116,7 +125,6 @@ jobs:
 
       - name: Windows packer smoke
         run: |
-          copy /Y _unpacker.bat "%RUNNER_TEMP%\committed-unpacker.bat" >nul
           set ROUTERFW_TEST_MODE=1
           call _packer.bat
           if errorlevel 1 exit /b 1
@@ -134,11 +142,6 @@ jobs:
           if exist _unpacker.bat.new exit /b 1
           fc /b "%RUNNER_TEMP%\generated-unpacker.bat" _unpacker.bat
           if errorlevel 1 exit /b 1
-          fc /b "%RUNNER_TEMP%\committed-unpacker.bat" _unpacker.bat >nul
-          if errorlevel 1 (
-            echo ::warning::_unpacker.bat differs after regeneration; packer output is deterministic on this runner.
-            exit /b 0
-          )
         shell: cmd
 
       - name: Run batch tester
