@@ -11,6 +11,7 @@ if exist "system\version.env" (
     if /i "%%A"=="ROUTERFW_VERSION" set "VER_NUM=%%B"
   )
 )
+title RouterFW Builder v%VER_NUM%
 :: Фиксируем размер окна: 120 символов в ширину, 40 в высоту (пропуск при ROUTERFW_NO_CLS — тестер)
 if not defined ROUTERFW_NO_CLS mode con: cols=120 lines=40
 :: Отключаем мигающий курсор (через PowerShell, так как в Batch нет нативного способа)
@@ -2209,6 +2210,7 @@ set "CHILD_COMPOSE_BASE_FILE=%COMPOSE_ARG%"
 set "CHILD_PROJ_NAME=%PROJ_NAME%"
 set "CHILD_SERVICE_NAME=%SERVICE_NAME%"
 set "CHILD_BUILD_MODE=%BUILD_MODE%"
+set "CHILD_WINDOW_TITLE=%WINDOW_TITLE%"
 START "%WINDOW_TITLE%" cmd /v:on /c call "%~f0" --child-build-window
 exit /b 0
 
@@ -2235,6 +2237,7 @@ set "COMPOSE_BASE_FILE=%CHILD_COMPOSE_BASE_FILE%"
 set "PROJ_NAME=%CHILD_PROJ_NAME%"
 set "SERVICE_NAME=%CHILD_SERVICE_NAME%"
 set "BUILD_MODE=%CHILD_BUILD_MODE%"
+if defined CHILD_WINDOW_TITLE title !CHILD_WINDOW_TITLE!
 call :RUN_COMPOSE -p %PROJ_NAME% up --build --force-recreate --remove-orphans %SERVICE_NAME%
 set "BUILD_STATUS=%errorlevel%"
 if not "%BUILD_STATUS%"=="0" (
