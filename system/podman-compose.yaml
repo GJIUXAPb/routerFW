@@ -2,9 +2,7 @@
 services:
   builder-openwrt:
     user: "0:0"
-    userns_mode: "keep-id:uid=0,gid=0"
 
   builder-oldwrt:
     user: "0:0"
-    userns_mode: "keep-id:uid=0,gid=0"
-# checksum:MD5=1c5ea163494874de5f56727786adcdf8
+# checksum:MD5=a744fa1f9a757615a3b2c87b7dd34f7a
