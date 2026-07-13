@@ -33,9 +33,21 @@ set "ROUTERFW_NO_CLS=1"
 set "ROUTERFW_TEST_MODE=1"
 set "LOG=%~dp0tester_log_win.md"
 set "TEMP_OUT=%~dp0tester_tmp_win_out.txt"
+set "TASK_DIR=%TEMP%\routerfw-tester-bat-%RANDOM%-%RANDOM%"
+mkdir "%TASK_DIR%" >nul 2>&1
+set "TESTER_JOBS=%ROUTERFW_TEST_JOBS%"
+if not defined TESTER_JOBS set "TESTER_JOBS=%NUMBER_OF_PROCESSORS%"
+if not defined TESTER_JOBS set "TESTER_JOBS=4"
+for /f "delims=0123456789" %%A in ("%TESTER_JOBS%") do set "TESTER_JOBS=4"
+if %TESTER_JOBS% LSS 1 set "TESTER_JOBS=1"
+if %TESTER_JOBS% GTR 8 set "TESTER_JOBS=8"
+set "TASK_COUNT=0"
+set "TASK_ACTIVE=0"
+set "TASK_SEQ=0"
 
 echo # tester.bat run %date% %time% > "%LOG%"
 echo. >> "%LOG%"
+echo Parallel jobs: %TESTER_JOBS% >> "%LOG%"
 
 set "TEST_ARGS="
 if not "%~1"=="" (
@@ -127,6 +139,7 @@ rem clean 9 → docker prune (не проверяем)
 rem clean 1 N, clean 2 N ... → реальная очистка (не проверяем)
 
 rem --- Project Health Checks ---
+call :wait_all
 set "TEE_LINE=" & call :tee
 set "TEE_LINE=== Project Health Checks ==="
 call :tee
@@ -143,12 +156,17 @@ call :run_ps 0 "Compose Wrapper Docker" "$log = Join-Path $env:TEMP ('routerfw-c
 call :run_ps 0 "Compose Wrapper Podman" "$log = Join-Path $env:TEMP ('routerfw-compose-' + [guid]::NewGuid() + '.log'); try { $cmd = 'set ROUTERFW_TEST_MODE=1&& set ROUTERFW_NO_CLS=1&& set ROUTERFW_RUNTIME=podman&& set ROUTERFW_TEST_COMPOSE_BASE=system/docker-compose.yaml&& set ROUTERFW_TEST_COMPOSE_ARGS=-p audit up builder-openwrt&& set ROUTERFW_TEST_COMPOSE_LOG=' + $log + '&& call _Builder.bat help >nul 2>&1'; cmd /v:on /c $cmd; if($LASTEXITCODE -ne 0){exit 1}; $line = Get-Content -LiteralPath $log -ErrorAction Stop | Select-Object -First 1; if(($line -match '^podman-compose -f system/docker-compose\.yaml -f system/podman-compose\.yaml -p audit up builder-openwrt$') -and ($line -notmatch 'docker-compose\.yaml .*docker-compose\.yaml')){exit 0}else{exit 1} } finally { Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue }"
 call :run_ps 0 "Compose Wrapper Docker Standalone" "$log = Join-Path $env:TEMP ('routerfw-compose-' + [guid]::NewGuid() + '.log'); try { $cmd = 'set ROUTERFW_TEST_MODE=1&& set ROUTERFW_NO_CLS=1&& set ROUTERFW_TEST_COMPOSE_PROVIDER=standalone&& set ROUTERFW_TEST_COMPOSE_BASE=system/docker-compose.yaml&& set ROUTERFW_TEST_COMPOSE_ARGS=-p audit up builder-openwrt&& set ROUTERFW_TEST_COMPOSE_LOG=' + $log + '&& call _Builder.bat help >nul 2>&1'; cmd /v:on /c $cmd; if($LASTEXITCODE -ne 0){exit 1}; $line = Get-Content -LiteralPath $log -ErrorAction Stop | Select-Object -First 1; if($line -match '^docker-compose -f system/docker-compose\.yaml -p audit up builder-openwrt$'){exit 0}else{exit 1} } finally { Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue }"
 call :run_ps 0 "Compose Wrapper Podman Standalone" "$log = Join-Path $env:TEMP ('routerfw-compose-' + [guid]::NewGuid() + '.log'); try { $cmd = 'set ROUTERFW_TEST_MODE=1&& set ROUTERFW_NO_CLS=1&& set ROUTERFW_RUNTIME=podman&& set ROUTERFW_TEST_COMPOSE_PROVIDER=standalone&& set ROUTERFW_TEST_COMPOSE_BASE=system/docker-compose.yaml&& set ROUTERFW_TEST_COMPOSE_ARGS=-p audit up builder-openwrt&& set ROUTERFW_TEST_COMPOSE_LOG=' + $log + '&& call _Builder.bat help >nul 2>&1'; cmd /v:on /c $cmd; if($LASTEXITCODE -ne 0){exit 1}; $line = Get-Content -LiteralPath $log -ErrorAction Stop | Select-Object -First 1; if($line -match '^podman-compose -f system/docker-compose\.yaml -f system/podman-compose\.yaml -p audit up builder-openwrt$'){exit 0}else{exit 1} } finally { Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue }"
+call :run_ps 0 "Packer Roundtrip" "$tmp = Join-Path $env:TEMP ('routerfw-unpack-' + [guid]::NewGuid()); $orig = Join-Path $env:TEMP ('routerfw-unpacker-' + [guid]::NewGuid() + '.bat'); $archive = $null; New-Item -ItemType Directory -Path $tmp | Out-Null; Copy-Item -LiteralPath '_unpacker.bat' -Destination $orig -Force; $before = @(Get-ChildItem -Filter 'routerFW_WinDockerBuilder_v*.zip' | ForEach-Object FullName); try { cmd /v:on /c 'set ROUTERFW_TEST_MODE=1&& call _packer.bat' >$null 2>&1; if($LASTEXITCODE -ne 0){exit 1}; if(Test-Path -LiteralPath '_unpacker.bat.new'){exit 1}; $after = @(Get-ChildItem -Filter 'routerFW_WinDockerBuilder_v*.zip' | ForEach-Object FullName); $archive = @(Compare-Object $before $after -PassThru | Select-Object -First 1); Copy-Item -LiteralPath '_unpacker.bat' -Destination (Join-Path $tmp '_unpacker.bat') -Force; Push-Location $tmp; try { cmd /c _unpacker.bat >$null 2>&1; if($LASTEXITCODE -ne 0){exit 1} } finally { Pop-Location }; foreach($rel in @('system\podman-compose.yaml','system\podman-compose-src.yaml','system\version.env')){ $unpacked = Join-Path $tmp $rel; if(-not (Test-Path -LiteralPath $unpacked)){exit 1}; $a=[Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $rel))); $b=[Convert]::ToBase64String([IO.File]::ReadAllBytes($unpacked)); if($a -ne $b){exit 1} }; exit 0 } finally { Copy-Item -LiteralPath $orig -Destination '_unpacker.bat' -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $orig -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue; if($archive){Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue}; Remove-Item -LiteralPath '_unpacker.bat.new' -Force -ErrorAction SilentlyContinue }"
+call :run_ps 0 "Packer Corrupt Unpack Fails" "$tmp = Join-Path $env:TEMP ('routerfw-corrupt-' + [guid]::NewGuid()); $orig = Join-Path $env:TEMP ('routerfw-unpacker-' + [guid]::NewGuid() + '.bat'); $archive = $null; New-Item -ItemType Directory -Path $tmp | Out-Null; Copy-Item -LiteralPath '_unpacker.bat' -Destination $orig -Force; $before = @(Get-ChildItem -Filter 'routerFW_WinDockerBuilder_v*.zip' | ForEach-Object FullName); try { cmd /v:on /c 'set ROUTERFW_TEST_MODE=1&& call _packer.bat' >$null 2>&1; if($LASTEXITCODE -ne 0){exit 1}; $after = @(Get-ChildItem -Filter 'routerFW_WinDockerBuilder_v*.zip' | ForEach-Object FullName); $archive = @(Compare-Object $before $after -PassThru | Select-Object -First 1); $inBlock=$false; $done=$false; $out = foreach($line in Get-Content -LiteralPath '_unpacker.bat'){ if($line -eq ':: BEGIN_B64_ system/version.env'){ $inBlock=$true; $line; continue }; if($line -eq ':: END_B64_ system/version.env'){ $inBlock=$false; $line; continue }; if($inBlock -and -not $done -and $line -notmatch '^::'){ $done=$true; '@@@@'; continue }; $line }; if(-not $done){exit 1}; [IO.File]::WriteAllLines((Join-Path $tmp '_unpacker.bat'), [string[]]$out, (New-Object Text.UTF8Encoding($false))); Push-Location $tmp; try { cmd /c _unpacker.bat >$null 2>&1; if($LASTEXITCODE -eq 0){exit 1} } finally { Pop-Location }; if(Test-Path -LiteralPath (Join-Path $tmp 'system\version.env')){exit 1}; exit 0 } finally { Copy-Item -LiteralPath $orig -Destination '_unpacker.bat' -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $orig -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue; if($archive){Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue}; Remove-Item -LiteralPath '_unpacker.bat.new' -Force -ErrorAction SilentlyContinue }"
+call :run_ps 0 "Packer Staging Cleanup" "$orig = Join-Path $env:TEMP ('routerfw-unpacker-' + [guid]::NewGuid() + '.bat'); $archive = $null; Copy-Item -LiteralPath '_unpacker.bat' -Destination $orig -Force; $before = @(Get-ChildItem -Filter 'routerFW_WinDockerBuilder_v*.zip' | ForEach-Object FullName); try { cmd /v:on /c 'set ROUTERFW_TEST_MODE=1&& call _packer.bat' >$null 2>&1; if($LASTEXITCODE -ne 0){exit 1}; if(Test-Path -LiteralPath '_unpacker.bat.new'){exit 1}; $after = @(Get-ChildItem -Filter 'routerFW_WinDockerBuilder_v*.zip' | ForEach-Object FullName); $archive = @(Compare-Object $before $after -PassThru | Select-Object -First 1); if(-not $archive){exit 1}; exit 0 } finally { Copy-Item -LiteralPath $orig -Destination '_unpacker.bat' -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $orig -Force -ErrorAction SilentlyContinue; if($archive){Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue}; Remove-Item -LiteralPath '_unpacker.bat.new' -Force -ErrorAction SilentlyContinue }"
 
+call :wait_all
 set "TEE_LINE=" & call :tee
 set "TEE_LINE=== Итого: !PASS! OK, !FAIL! FAIL ==="
 call :tee
 set "TEE_LINE=" & call :tee
 if exist "%TEMP_OUT%" del "%TEMP_OUT%"
+if exist "%TASK_DIR%" rd /s /q "%TASK_DIR%" >nul 2>&1
 if not "%FAIL%"=="0" exit /b 1
 exit /b 0
 
@@ -164,29 +182,13 @@ if defined TEST_ARGS (
   )
   if "!SHOULD_RUN!"=="0" exit /b 0
 )
-set "CMD=%~3 %~4 %~5 %~6 %~7 %~8 %~9"
-set "TEE_LINE=" & call :tee
-rem УБРАЛИ !CMD! ИЗ ВЫВОДА
-set "TEE_LINE=--- Test: !LABEL! ---" & call :tee
-call "%BAT%" %~3 %~4 %~5 %~6 %~7 %~8 %~9 > "%TEMP_OUT%" 2>&1
-set "GOT=!errorlevel!"
-type "%TEMP_OUT%"
-type "%TEMP_OUT%" >> "%LOG%"
-set "TEE_LINE=" & call :tee
-if "!EXPECT!"=="!GOT!" (
-  set "TEE_LINE=[OK] !LABEL!" & call :tee
-  set /a PASS+=1
-) else (
-  set "LABEL_ECHO=!LABEL:>=^>!"
-  set "LABEL_ECHO=!LABEL_ECHO:<=^<!"
-  set "TEE_LINE=[FAIL] !LABEL_ECHO! ^(expected exit !EXPECT!, got !GOT!^)" & call :tee
-  set /a FAIL+=1
-)
+call :enqueue_run "%EXPECT%" "%LABEL%" %~3 %~4 %~5 %~6 %~7 %~8 %~9
 exit /b 0
 
 :run_ps
 set "EXPECT=%~1"
 set "LABEL=%~2"
+call :wait_all
 if defined TEST_ARGS (
   set "SHOULD_RUN=0"
   set "LABEL_NO_QUOTES=!LABEL:"=!"
@@ -231,22 +233,113 @@ if defined TEST_ARGS (
   )
   if "!SHOULD_RUN!"=="0" exit /b 0
 )
-set "TEE_LINE=" & call :tee
-set "TEE_LINE=--- Test: !LABEL! ---" & call :tee
-cmd /v:on /c "set ROUTERFW_TEST_BUILD_STATUS=%FORCED_STATUS%&& call %BAT% !RUN_CMD!" > "%TEMP_OUT%" 2>&1
-set "GOT=!errorlevel!"
-type "%TEMP_OUT%"
-type "%TEMP_OUT%" >> "%LOG%"
-set "TEE_LINE=" & call :tee
-if "!EXPECT!"=="!GOT!" (
-  set "TEE_LINE=[OK] !LABEL!" & call :tee
-  set /a PASS+=1
-) else (
-  set "TEE_LINE=[FAIL] !LABEL! ^(expected exit !EXPECT!, got !GOT!^)" & call :tee
-  set /a FAIL+=1
-)
+call :enqueue_env "%EXPECT%" "%LABEL%" "%FORCED_STATUS%" "!RUN_CMD!"
 exit /b 0
 
 :tee
 if "!TEE_LINE!"=="" (echo. & echo. >> "%LOG%") else (echo !TEE_LINE! & echo !TEE_LINE! >> "%LOG%")
+exit /b 0
+
+:enqueue_run
+if !TASK_ACTIVE! GEQ %TESTER_JOBS% call :wait_all
+set /a TASK_COUNT+=1
+set /a TASK_SEQ+=1
+set /a TASK_ACTIVE+=1
+set "TASK_EXPECT[!TASK_COUNT!]=%~1"
+set "TASK_LABEL[!TASK_COUNT!]=%~2"
+set "TASK_KIND[!TASK_COUNT!]=Test"
+set "OUT_FILE=%TASK_DIR%\!TASK_SEQ!.out"
+set "RC_FILE=%TASK_DIR%\!TASK_SEQ!.rc"
+set "DONE_FILE=%TASK_DIR%\!TASK_SEQ!.done"
+set "TASK_SCRIPT=%TASK_DIR%\!TASK_SEQ!.cmd"
+set "TASK_OUT[!TASK_COUNT!]=!OUT_FILE!"
+set "TASK_RC[!TASK_COUNT!]=!RC_FILE!"
+set "TASK_DONE[!TASK_COUNT!]=!DONE_FILE!"
+(
+  echo @echo off
+  echo setlocal
+  echo cd /d "%~dp0"
+  echo set "ROUTERFW_NO_CLS=1"
+  echo set "ROUTERFW_TEST_MODE=1"
+  echo call "%~dp0%BAT%" %~3 %~4 %~5 %~6 %~7 %~8 %~9 ^> "!OUT_FILE!" 2^>^&1
+  echo set "GOT=%%ERRORLEVEL%%"
+  echo ^> "!RC_FILE!" echo %%GOT%%
+  echo ^> "!DONE_FILE!" echo done
+) > "!TASK_SCRIPT!"
+start "" /b "%ComSpec%" /c ""!TASK_SCRIPT!""
+exit /b 0
+
+:enqueue_env
+if !TASK_ACTIVE! GEQ %TESTER_JOBS% call :wait_all
+set /a TASK_COUNT+=1
+set /a TASK_SEQ+=1
+set /a TASK_ACTIVE+=1
+set "TASK_EXPECT[!TASK_COUNT!]=%~1"
+set "TASK_LABEL[!TASK_COUNT!]=%~2"
+set "TASK_KIND[!TASK_COUNT!]=Test"
+set "OUT_FILE=%TASK_DIR%\!TASK_SEQ!.out"
+set "RC_FILE=%TASK_DIR%\!TASK_SEQ!.rc"
+set "DONE_FILE=%TASK_DIR%\!TASK_SEQ!.done"
+set "TASK_SCRIPT=%TASK_DIR%\!TASK_SEQ!.cmd"
+set "TASK_OUT[!TASK_COUNT!]=!OUT_FILE!"
+set "TASK_RC[!TASK_COUNT!]=!RC_FILE!"
+set "TASK_DONE[!TASK_COUNT!]=!DONE_FILE!"
+(
+  echo @echo off
+  echo setlocal
+  echo cd /d "%~dp0"
+  echo set "ROUTERFW_NO_CLS=1"
+  echo set "ROUTERFW_TEST_MODE=1"
+  echo set "ROUTERFW_TEST_BUILD_STATUS=%~3"
+  echo call "%~dp0%BAT%" %~4 ^> "!OUT_FILE!" 2^>^&1
+  echo set "GOT=%%ERRORLEVEL%%"
+  echo ^> "!RC_FILE!" echo %%GOT%%
+  echo ^> "!DONE_FILE!" echo done
+) > "!TASK_SCRIPT!"
+start "" /b "%ComSpec%" /c ""!TASK_SCRIPT!""
+exit /b 0
+
+:wait_all
+if "%TASK_COUNT%"=="0" exit /b 0
+:wait_loop
+set "DONE_COUNT=0"
+for /L %%I in (1,1,%TASK_COUNT%) do (
+  if exist "!TASK_DONE[%%I]!" set /a DONE_COUNT+=1
+)
+if not "!DONE_COUNT!"=="%TASK_COUNT%" (
+  >nul 2>&1 timeout /t 1 /nobreak
+  goto wait_loop
+)
+for /L %%I in (1,1,%TASK_COUNT%) do (
+  set "LABEL=!TASK_LABEL[%%I]!"
+  set "EXPECT=!TASK_EXPECT[%%I]!"
+  set "OUT=!TASK_OUT[%%I]!"
+  set "RC=!TASK_RC[%%I]!"
+  set "GOT=255"
+  if exist "!RC!" set /p "GOT="<"!RC!"
+  set "TEE_LINE=" & call :tee
+  set "TEE_LINE=--- !TASK_KIND[%%I]!: !LABEL! ---" & call :tee
+  if exist "!OUT!" type "!OUT!"
+  if exist "!OUT!" type "!OUT!" >> "%LOG%"
+  set "TEE_LINE=" & call :tee
+  if "!EXPECT!"=="!GOT!" (
+    set "TEE_LINE=[OK] !LABEL!" & call :tee
+    set /a PASS+=1
+  ) else (
+    set "LABEL_ECHO=!LABEL:>=^>!"
+    set "LABEL_ECHO=!LABEL_ECHO:<=^<!"
+    set "TEE_LINE=[FAIL] !LABEL_ECHO! ^(expected exit !EXPECT!, got !GOT!^)" & call :tee
+    set /a FAIL+=1
+  )
+)
+for /L %%I in (1,1,%TASK_COUNT%) do (
+  set "TASK_EXPECT[%%I]="
+  set "TASK_LABEL[%%I]="
+  set "TASK_KIND[%%I]="
+  set "TASK_OUT[%%I]="
+  set "TASK_RC[%%I]="
+  set "TASK_DONE[%%I]="
+)
+set "TASK_COUNT=0"
+set "TASK_ACTIVE=0"
 exit /b 0

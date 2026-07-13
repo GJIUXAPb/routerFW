@@ -73,13 +73,13 @@ Previously this had to be done manually by extracting the version via `unzip -p 
 
 **What `noarch` and `all` mean:** These are **universal** architectures — packages without machine code (LuCI scripts, Lua files, configs). They work on **any** device.
 
-**Solution (v4.60+):** The builder now passes `noarch` and `all` as universal architectures without errors.
+**Solution (v4.70+):** The builder now passes `noarch` and `all` as universal architectures without errors.
 
 ---
 
 ## 4. APK Scanner: Automatic Validation and Correction
 
-Starting with **v4.60**, the builder includes an **APK Scanner** — a utility that checks and fixes your `.apk` files before the build.
+Starting with **v4.70**, the builder includes an **APK Scanner** — a utility that checks and fixes your `.apk` files before the build.
 
 ### What It Does
 

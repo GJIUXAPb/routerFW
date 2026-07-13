@@ -4,7 +4,7 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-VER_NUM="4.60"
+VER_NUM="4.70"
 if [ -f "system/version.env" ]; then
     loaded_ver=$(grep -E '^ROUTERFW_VERSION=' "system/version.env" | head -1 | cut -d'=' -f2- | tr -d '"'\''[:space:]\r')
     [ -n "$loaded_ver" ] && VER_NUM="$loaded_ver"
@@ -293,7 +293,9 @@ try_runtime_candidate() {
             RUNTIME_ERROR_MESSAGE_1="$L_ERR_DOCKER"
             RUNTIME_ERROR_MESSAGE_2="$L_ERR_DOCKER_MSG"
             command -v docker >/dev/null 2>&1 || return 1
-            docker info >/dev/null 2>&1 || return 1
+            if [ "${RUNTIME_STRICT_PROBE:-0}" = "1" ] && ! docker info >/dev/null 2>&1; then
+                return 1
+            fi
             CONTAINER_RUNTIME="docker"
             CONTAINER_LABEL="docker"
             CONTAINER_CMD=(docker)
@@ -363,8 +365,13 @@ resolve_runtime() {
                 CONTAINER_RUNTIME="docker"
                 CONTAINER_LABEL="docker"
                 CONTAINER_CMD=(docker)
-                COMPOSE_CMD=(docker compose)
-                COMPOSE_LABEL="docker compose"
+                if [[ "${ROUTERFW_TEST_COMPOSE_PROVIDER:-}" == "standalone" ]]; then
+                    COMPOSE_CMD=(docker-compose)
+                    COMPOSE_LABEL="docker-compose"
+                else
+                    COMPOSE_CMD=(docker compose)
+                    COMPOSE_LABEL="docker compose"
+                fi
                 return 0
                 ;;
             podman)
@@ -384,11 +391,16 @@ resolve_runtime() {
     fi
     case "$ROUTERFW_RUNTIME" in
         auto)
-            try_runtime_candidate docker && return 0
+            if try_runtime_candidate docker; then
+                # Prefer live Docker, but allow Podman fallback when only Docker CLI is present.
+                docker info >/dev/null 2>&1 && return 0
+                try_runtime_candidate podman && return 0
+                try_runtime_candidate docker && return 0
+            fi
             try_runtime_candidate podman && return 0
             ;;
         docker|podman)
-            try_runtime_candidate "$ROUTERFW_RUNTIME" && return 0
+            RUNTIME_STRICT_PROBE=1 try_runtime_candidate "$ROUTERFW_RUNTIME" && return 0
             ;;
         *)
             echo -e "${C_ERR}[CLI] Invalid runtime '${ROUTERFW_RUNTIME}'. Use auto, docker, or podman.${C_RST}"
@@ -511,7 +523,15 @@ echo -e "$L_INIT_NET"
 echo ""
 
 # === 0. РАСПАКОВКА ===
-if [[ -z "${ROUTERFW_TEST_MODE:-}" ]] && [ -f "_unpacker.sh" ]; then
+NEED_UNPACKER=0
+[ -n "${ROUTERFW_REPAIR:-}" ] && NEED_UNPACKER=1
+[ -n "${ROUTERFW_UNPACK:-}" ] && NEED_UNPACKER=1
+[ -f "profiles/personal.flag" ] || NEED_UNPACKER=1
+[ -f "system/version.env" ] || NEED_UNPACKER=1
+[ -f "system/docker-compose.yaml" ] || NEED_UNPACKER=1
+[ -f "system/lang/ru.env" ] || NEED_UNPACKER=1
+
+if [[ -z "${ROUTERFW_TEST_MODE:-}" ]] && [ "$NEED_UNPACKER" -eq 1 ] && [ -f "_unpacker.sh" ]; then
     echo -e "$L_INIT_UNPACK"
     bash _unpacker.sh
 fi
@@ -1801,7 +1821,7 @@ while true; do
     if [ -z "$CLI_CMD" ]; then
         echo -e "${C_GRY}┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐${C_RST}"
         echo -e "  ${C_VAL}OpenWrt FW Linux Builder ${VER_NUM}${C_RST} [${C_VAL}${SYS_LANG}${C_RST}]          ${C_LBL}https://github.com/iqubik/routerFW${C_RST}"
-        echo -e "  ${L_CUR_MODE}: [${MODE_COLOR}${MODE_TITLE}${C_RST}]"
+        echo -e "  ${L_CUR_MODE}: [${MODE_TITLE} ${L_BY} ${C_VAL}${CONTAINER_LABEL}${C_RST}]"
         echo -e "${C_GRY}└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘${C_RST}"
         echo ""
         printf "    %-5s %-54s %-31s %-20s\n" "${C_GRY}ID" "$H_PROF" "$H_ARCH" "$H_RES${C_RST}"
@@ -2098,4 +2118,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=02a72869a0a48c2b020191ccd67e3e00
+# checksum:MD5=9fee62bd89e0a071fa996f3e5137a48b

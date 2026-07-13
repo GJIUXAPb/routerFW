@@ -59,7 +59,7 @@ The main menu features a "surgical" resource panel **`[F P S M H X | OI OS]`** f
 
 ---
 
-### 🛡️ APK Scanner (v4.60+)
+### 🛡️ APK Scanner (v4.70+)
 Built-in scanner for automatic validation and renaming of `.apk` files before building in Image Builder mode.
 
 *   **Why:** Image Builder rejects packages if the filename doesn't match the internal version (the `luci-i18n-podkop-ru` bug). The scanner reads metadata via Docker (`apk adbdump`) and fixes filenames automatically.
@@ -422,4 +422,4 @@ Release visualization (CHANGELOG) — timeline, heatmap, activity river, pulse b
 ---
 
 Project audit https://github.com/iqubik/routerFW/blob/main/docs/audit.md
-# checksum:MD5=2b444a110935fc138901b26ea6ffbba3
+# checksum:MD5=45223ab37fb6584f6ab97fd09af50350

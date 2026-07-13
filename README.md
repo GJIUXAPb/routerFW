@@ -58,7 +58,7 @@
 
 ---
 
-### 🛡️ APK Scanner (v4.60+)
+### 🛡️ APK Scanner (v4.70+)
 Встроенный сканер для автоматической валидации и переименования `.apk` файлов перед сборкой в режиме Image Builder.
 
 *   **Зачем:** Image Builder отвергает пакеты, если имя файла не совпадает с внутренней версией (баг `luci-i18n-podkop-ru`). Сканер читает метаданные через Docker (`apk adbdump`) и исправляет имена автоматически.
@@ -429,4 +429,4 @@ SRC_CORES="safe"
 ---
 
 Аудит проекта https://github.com/iqubik/routerFW/blob/main/docs/audit.md
-# checksum:MD5=dc7b5e5211b75eb29225ce118f661abd
+# checksum:MD5=7ee672180fc46ad648f7954817750dc6

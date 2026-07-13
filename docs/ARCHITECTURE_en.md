@@ -7,7 +7,7 @@
 
 # routerFW — Architecture & Process Flow
 
-> Version: 4.60. Last updated: 2026-04.
+> Version: 4.70. Last updated: 2026-04.
 
 ---
 
@@ -88,7 +88,7 @@ Main Menu
   ├─ [C]          Cleanup Wizard (cache, volumes, full reset)
   ├─ [W]          Create new profile wizard  →  system/create_profile.sh / .ps1  (exit: 0, same as main menu)
   ├─ [I]          Import .ipk/.apk packages  →  system/import_ipk.sh / .ps1 (APK support since v4.50)
-  ├─ [S]          APK Scanner — validate & rename .apk  →  system/apk_scanner.sh / .ps1 (since v4.60)
+  ├─ [S]          APK Scanner — validate & rename .apk  →  system/apk_scanner.sh / .ps1 (since v4.70)
   ├─ [F]          Check All — update checksum:MD5 in all unpacker files
   ├─ [P]          Run _packer.bat / _packer.sh (resource packaging)
   └─ [0]          Quit
@@ -114,7 +114,7 @@ The main menu displays a "surgical" resource panel for instant profile assessmen
 ## 4. APK Scanner — Package Validation (Image Builder)
 
 ```
-system/apk_scanner.sh / system/apk_scanner.ps1  (v1.0, since v4.60)
+system/apk_scanner.sh / system/apk_scanner.ps1  (v1.0, since v4.70)
   │
   ├─ Launch: AUTO (before docker compose up in IB mode, when .apk files exist in custom_packages/)
   │           or MANUAL ([S] button in main menu → profile selection)

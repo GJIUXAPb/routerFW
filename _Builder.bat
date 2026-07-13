@@ -2,7 +2,7 @@
 rem file: _Builder.bat
 rem CLI: --lang=RU|EN или -l RU|EN — язык. [ib|src] — режим. build[b], build-all[a|all], edit[e], menuconfig[k], import[i], wizard[w], clean[c], help[-h|--help]. Примеры: --lang=EN build 1, ib build 1.
 
-set "VER_NUM=4.60"
+set "VER_NUM=4.70"
 
 setlocal enabledelayedexpansion
 if /i "%~1"=="--child-build-window" goto CHILD_BUILD_WINDOW
@@ -233,8 +233,15 @@ echo   %C_GRY%-%C_RST% !L_INIT_ROOT!: %C_VAL%%CD%%C_RST%
 
 echo !L_INIT_NET!
 echo.
-rem unpack
-if not defined ROUTERFW_TEST_MODE if exist _unpacker.bat (
+rem unpack: run only for first/bootstrap repair, not on every normal startup
+set "NEED_UNPACKER=0"
+if defined ROUTERFW_REPAIR set "NEED_UNPACKER=1"
+if defined ROUTERFW_UNPACK set "NEED_UNPACKER=1"
+if not exist "profiles\personal.flag" set "NEED_UNPACKER=1"
+if not exist "system\version.env" set "NEED_UNPACKER=1"
+if not exist "system\docker-compose.yaml" set "NEED_UNPACKER=1"
+if not exist "system\lang\ru.env" set "NEED_UNPACKER=1"
+if not defined ROUTERFW_TEST_MODE if "%NEED_UNPACKER%"=="1" if exist _unpacker.bat (
     echo %L_INIT_UNPACK%
     call _unpacker.bat
 )
@@ -251,7 +258,13 @@ call :CHECK_DIR "firmware_output\sourcebuilder"
 call :CHECK_DIR "custom_packages"
 call :CHECK_DIR "src_packages"
 
-rem architecture patch scan
+rem architecture patch scan: start PowerShell only if a profile lacks SRC_ARCH.
+set "NEED_ARCH_SCAN=0"
+for %%P in ("profiles\*.conf") do (
+    findstr /B /C:"SRC_ARCH=" "%%~fP" >nul 2>&1
+    if errorlevel 1 set "NEED_ARCH_SCAN=1"
+)
+if "%NEED_ARCH_SCAN%"=="1" (
 echo !L_INIT_SCAN!
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$profiles = Get-ChildItem 'profiles/*.conf';" ^
@@ -302,6 +315,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "    }" ^
     "}"
 echo.
+)
 
 :: === CLI: эффективный список аргументов (без ключа языка); префикс режима (ib/src), команда ===
 set "p1=" & set "p2=" & set "p3=" & set "p4=" & set "p5="
@@ -376,7 +390,7 @@ if "%BUILD_MODE%"=="IMAGE" (
 if not defined CLI_CMD (
 echo !C_GRY!┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐!C_RST!
 echo   !C_VAL!OpenWrt FW Windows Builder !VER_NUM!!C_RST! [!C_VAL!!SYS_LANG!!C_RST!]          !C_LBL!https://github.com/iqubik/routerFW!C_RST!
-echo   !L_CUR_MODE!: [!C_VAL!!MODE_TITLE!!C_RST!]
+echo   !L_CUR_MODE!: [!MODE_TITLE! !L_BY! !C_VAL!!CONTAINER_EXE!!C_RST!]
 echo !C_GRY!└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘!C_RST!
 echo.
 echo    !C_GRY! ID   !H_PROF!                                      !H_ARCH!          !H_RES!!C_RST!
@@ -2293,4 +2307,4 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJlYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=bb40acecc361e16b31a77939a219a7ce
+:: checksum:MD5=d30ef6ee4b239e237d5150a5d6123340

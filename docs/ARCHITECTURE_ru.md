@@ -7,7 +7,7 @@
 
 # routerFW — Архитектура и поток процессов
 
-> Версия: 4.60. Обновлено: 2026-04.
+> Версия: 4.70. Обновлено: 2026-04.
 
 ---
 
@@ -88,7 +88,7 @@
   ├─ [C]         Мастер очистки (кэш, тома, полный сброс)
   ├─ [W]         Мастер создания нового профиля  →  system/create_profile.sh / .ps1  (выход: 0, как в главном меню)
   ├─ [I]         Импорт .ipk/.apk-пакетов        →  system/import_ipk.sh / .ps1 (поддержка APK с v4.50)
-  ├─ [S]         APK Scanner — валидация и переименование .apk  →  system/apk_scanner.sh / .ps1 (с v4.60)
+  ├─ [S]         APK Scanner — валидация и переименование .apk  →  system/apk_scanner.sh / .ps1 (с v4.70)
   ├─ [F]         Check All — обновить checksum:MD5 во всех файлах unpacker
   ├─ [P]         Вызвать _packer.bat / _packer.sh (упаковка ресурсов)
   └─ [0]         Выход
@@ -114,7 +114,7 @@
 ## 4. APK Scanner — валидация пакетов (Image Builder)
 
 ```
-system/apk_scanner.sh / system/apk_scanner.ps1  (v1.0, с v4.60)
+system/apk_scanner.sh / system/apk_scanner.ps1  (v1.0, с v4.70)
   │
   ├─ Запуск: АВТО (перед docker compose up в IB-режиме, при наличии .apk в custom_packages/)
   │           или РУЧНОЙ (кнопка [S] в главном меню → выбор профиля)
