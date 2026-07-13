@@ -161,7 +161,7 @@ foreach ($apk in $apkFiles) {
         $correctPath = Join-Path $apk.DirectoryName $correctName
 
         if ($correctName -ne $apkName) {
-            $null = Read-Host $T_RENAME_PMT
+            $choice = Read-Host $T_RENAME_PMT
             if ($choice -eq "N" -or $choice -eq "n") {
                 Write-Host "    $T_SKIPPED" -ForegroundColor Gray
                 $warnings++
@@ -214,4 +214,4 @@ if ($warnings -gt 0) {
     exit 1
 }
 exit 0
-# checksum:MD5=a1056895fe71d1c7a1e891d336c8fb03
+# checksum:MD5=1e0c2c4a79ec81bf031fb53f55256134

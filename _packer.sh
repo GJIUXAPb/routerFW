@@ -98,6 +98,8 @@ echo -e "[PACKER] Создание структуры распаковщика..
     echo "# Переходим в директорию скрипта"
 } > "$NEW_UNPACKER"
 cat << 'EOF' >> "$NEW_UNPACKER"
+set -e
+
 cd "$(dirname "$0")"
 
 echo "[UNPACKER] Resource check..."
@@ -111,19 +113,51 @@ fi
 decode_file() {
     local target="$1"
     local hash="$2"
-    # Если файл существует - пропускаем
-    if [ -f "$target" ]; then return; fi
-    
-    # Создаем папку
-    mkdir -p "$(dirname "$target")"
+    local actual_hash
+    local tmp
+
+    if [ -f "$target" ]; then
+        if [ -n "$hash" ] && [ "$hash" != "unknown" ]; then
+            actual_hash=$(md5sum "$target" | cut -d' ' -f1)
+            actual_hash="${actual_hash,,}"
+            if [ "$actual_hash" = "$hash" ]; then
+                return 0
+            fi
+            echo "[WARN] Existing checksum mismatch, recovering: $target"
+        else
+            return 0
+        fi
+    fi
+
     echo "[UNPACK] Recover: $target - md5( $hash )"
-    
-    # Извлекаем Base64 блок между маркерами
+
+    tmp=$(mktemp) || return 1
+
+    # Извлекаем Base64 блок между маркерами во временный файл.
     # FIX: Используем строгое равенство (==) вместо match (~), 
     # чтобы избежать совпадения имен файлов (например, dockerfile и dockerfile.legacy)
-    awk -v t="$target" '$0 == "# BEGIN_B64_ " t, $0 == "# END_B64_ " t' "$0" | \
-    grep -v "BEGIN_B64_" | grep -v "END_B64_" | base64 -d > "$target"
-    
+    if ! awk -v t="$target" '$0 == "# BEGIN_B64_ " t, $0 == "# END_B64_ " t' "$0" | \
+        grep -v "BEGIN_B64_" | grep -v "END_B64_" | base64 -d > "$tmp"; then
+        rm -f "$tmp"
+        echo "[ERROR] Failed to decode: $target"
+        return 1
+    fi
+
+    if [ -n "$hash" ] && [ "$hash" != "unknown" ]; then
+        actual_hash=$(md5sum "$tmp" | cut -d' ' -f1)
+        actual_hash="${actual_hash,,}"
+        if [ "$actual_hash" != "$hash" ]; then
+            rm -f "$tmp"
+            echo "[ERROR] Checksum mismatch: $target"
+            echo "[ERROR] Expected: $hash"
+            echo "[ERROR] Actual:   $actual_hash"
+            return 1
+        fi
+    fi
+
+    mkdir -p "$(dirname "$target")"
+    mv "$tmp" "$target"
+
     # Если это скрипт - даем права на исполнение
     if [[ "$target" == *.sh ]]; then
         chmod +x "$target"
@@ -184,14 +218,17 @@ process_file() {
         hash=$(md5sum < "$staged" | cut -d' ' -f1)
         hash="${hash,,}"
         
-        # Сохраняем хеш для распаковщика
-        echo "$hash" > "$hash_out"
-
         local prefix
         prefix=$(checksum_comment_prefix "$file")
         
         # Дописываем новую checksum строку
         printf '%s checksum:MD5=%s' "$prefix" "$hash" >> "$staged"
+
+        # Распаковщик проверяет целостность фактически встроенного payload.
+        local payload_hash
+        payload_hash=$(md5sum < "$staged" | cut -d' ' -f1)
+        payload_hash="${payload_hash,,}"
+        echo "$payload_hash" > "$hash_out"
         
         echo "" > "$out"
         echo "# BEGIN_B64_ $file" >> "$out"
@@ -243,12 +280,13 @@ for i in "${!FILES[@]}"; do
     IS_PROTECTED=0
     [[ "$FILE" == profiles/* ]] && IS_PROTECTED=1
     [[ "$FILE" == firmware_output/* ]] && IS_PROTECTED=1
+    [[ "$FILE" == custom_files/* ]] && IS_PROTECTED=1
     [[ "$FILE" == scripts/* ]] && IS_PROTECTED=1
 
     if [ $IS_PROTECTED -eq 1 ]; then
-        echo "if [ \$SKIP_DEFAULTS -eq 0 ]; then decode_file \"$FILE\" \"$F_HASH\"; fi" >> "$NEW_UNPACKER"
+        echo "if [ \$SKIP_DEFAULTS -eq 0 ]; then decode_file \"$FILE\" \"$F_HASH\" || exit 1; fi" >> "$NEW_UNPACKER"
     else
-        echo "decode_file \"$FILE\" \"$F_HASH\"" >> "$NEW_UNPACKER"
+        echo "decode_file \"$FILE\" \"$F_HASH\" || exit 1" >> "$NEW_UNPACKER"
     fi
 done
 

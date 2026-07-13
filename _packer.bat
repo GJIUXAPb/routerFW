@@ -83,7 +83,7 @@ call :ADD_FILE "custom_files\rax3000m_emmc_test_new\hooks.sh"
 
 :: Настройки путей
 set "NEW_UNPACKER_FILE=_unpacker.bat.new"
-set "TEMP_DIR_NAME=temp_packer_worker"
+set "TEMP_DIR_NAME=temp_packer_worker_%RANDOM%_%RANDOM%"
 set "FULL_TEMP_DIR=%~dp0%TEMP_DIR_NAME%"
 
 :: Очистка и подготовка
@@ -127,14 +127,18 @@ for /L %%i in (1,1,%IDX%) do (
 )
 
 echo [PACKER] Ожидание завершения потоков...
+set "WAIT_SECONDS=0"
+set "WAIT_LIMIT=600"
 
 :WAIT_LOOP
-set "DONE_COUNT=0"
-for %%A in ("%FULL_TEMP_DIR%\*.ready") do set /a DONE_COUNT+=1
+if exist "%FULL_TEMP_DIR%\*.failed" goto PACK_WORKER_FAILED
+for /f %%C in ('dir /b /a-d "%FULL_TEMP_DIR%\*.ready" 2^>nul ^| find /c /v ""') do set "DONE_COUNT=%%C"
 <nul set /p "=Progress: !DONE_COUNT! / !IDX!   " >con
 <nul set /p "=                          " >con
 if !DONE_COUNT! LSS !IDX! (
     timeout /t 1 >nul
+    set /a WAIT_SECONDS+=1
+    if !WAIT_SECONDS! GEQ !WAIT_LIMIT! goto PACK_WORKER_TIMEOUT
     goto :WAIT_LOOP
 )
 echo.
@@ -153,12 +157,15 @@ for /L %%i in (1,1,%IDX%) do (
     
     echo "!FNAME!" | findstr /C:"profiles\\" >nul && set "IS_PROTECTED=1"
     echo "!FNAME!" | findstr /C:"firmware_output\\" >nul && set "IS_PROTECTED=1"
+    if /i "!FNAME:~0,13!"=="custom_files\" set "IS_PROTECTED=1"
     echo "!FNAME!" | findstr /C:"scripts\\" >nul && set "IS_PROTECTED=1"
     
     if "!IS_PROTECTED!"=="1" (
-        echo if "%%SKIP_DEFAULTS%%"=="0" call :DECODE_FILE "!FNAME!" "!F_HASH!">> "%NEW_UNPACKER_FILE%"
+        echo if "%%SKIP_DEFAULTS%%"=="0" ^(>> "%NEW_UNPACKER_FILE%"
+        echo     call :DECODE_FILE "!FNAME!" "!F_HASH!" ^|^| exit /b 1 >> "%NEW_UNPACKER_FILE%"
+        echo ^)>> "%NEW_UNPACKER_FILE%"
     ) else (
-        echo call :DECODE_FILE "!FNAME!" "!F_HASH!">> "%NEW_UNPACKER_FILE%"
+        echo call :DECODE_FILE "!FNAME!" "!F_HASH!" ^|^| exit /b 1 >> "%NEW_UNPACKER_FILE%"
     )
 )
 
@@ -176,13 +183,12 @@ for /L %%i in (1,1,%IDX%) do (
     echo echo ===================================
     echo echo Now you will Run _Builder.bat
     echo echo ===================================
-    echo exit /b
+    echo exit /b 0
     echo.
     echo :DECODE_FILE
-    echo     if exist "%%~1" exit /b
-    echo     if not exist "%%~dp1" md "%%~dp1" 2^>nul
     echo     echo [UNPACK] Recover: %%~1 - md5^( %%~2^)
-    echo     powershell -Command "$ext = '%%~1'; $content = Get-Content '%%~f0'; $start = $false; $b64 = ''; foreach($line in $content){ if($line -match 'BEGIN_B64_ ' + [Regex]::Escape($ext)){ $start = $true; continue }; if($line -match 'END_B64_ ' + [Regex]::Escape($ext)){ $start = $false; break }; if($start){ $b64 += $line.Trim() } }; if($b64){ [IO.File]::WriteAllBytes($ext, [Convert]::FromBase64String($b64)) }"
+    echo     powershell -NoProfile -ExecutionPolicy Bypass -Command "function Md5($p){ $m=[Security.Cryptography.MD5]::Create(); $s=[IO.File]::OpenRead($p); try { $bytes=$m.ComputeHash($s) } finally { $s.Dispose(); $m.Dispose() }; $sb=New-Object Text.StringBuilder; foreach($b in $bytes){ [void]$sb.Append($b.ToString('x2')) }; $sb.ToString() }; $ext='%%~1'; $hash='%%~2'.Trim().ToLowerInvariant(); $self='%%~f0'; if(Test-Path -LiteralPath $ext){ if($hash -and $hash -ne 'unknown'){ $existing=Md5 $ext; if($existing -eq $hash){ exit 0 }; Write-Host ('[WARN] Existing checksum mismatch, recovering: ' + $ext) } else { exit 0 } }; $content=Get-Content -LiteralPath $self; $start=$false; $b64=''; foreach($line in $content){ if($line -eq (':: BEGIN_B64_ ' + $ext)){ $start=$true; continue }; if($line -eq (':: END_B64_ ' + $ext)){ $start=$false; break }; if($start){ $b64 += $line.Trim() } }; if(-not $b64){ Write-Error ('Missing payload: ' + $ext); exit 1 }; $tmp=[IO.Path]::GetTempFileName(); try { [IO.File]::WriteAllBytes($tmp,[Convert]::FromBase64String($b64)); if($hash -and $hash -ne 'unknown'){ $actual=Md5 $tmp; if($actual -ne $hash){ Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; Write-Error ('Checksum mismatch: ' + $ext + ' expected ' + $hash + ' actual ' + $actual); exit 1 } }; $dir=Split-Path -Parent $ext; if($dir){ [void](New-Item -ItemType Directory -Force -Path $dir) }; Move-Item -LiteralPath $tmp -Destination $ext -Force; exit 0 } catch { if(Test-Path -LiteralPath $tmp){ Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }; Write-Error $_.Exception.Message; exit 1 }"
+    echo     if errorlevel 1 exit /b 1
     echo exit /b
     echo.
     echo :: =========================================================
@@ -236,6 +242,16 @@ goto PACK_ERROR
 echo [ERROR] Не удалось запустить worker для "%PACK_ERROR_FILE%".
 goto PACK_ERROR
 
+:PACK_WORKER_FAILED
+echo.
+echo [ERROR] Один или несколько worker-процессов завершились с ошибкой.
+goto PACK_ERROR
+
+:PACK_WORKER_TIMEOUT
+echo.
+echo [ERROR] Таймаут ожидания worker-процессов.
+goto PACK_ERROR
+
 :PACK_MOVE_ERROR
 echo.
 echo [ERROR] Не удалось заменить _unpacker.bat.
@@ -262,9 +278,10 @@ exit /b
 set "CURRENT_ID=%~1"
 set "CURRENT_FILE=!FILE_%CURRENT_ID%!"
 if not exist "%CURRENT_FILE%" (
-    echo   [SKIP] Файл "%CURRENT_FILE%" не найден.
-    echo. > "%FULL_TEMP_DIR%\%CURRENT_ID%.ready"
-    exit /b 0
+    echo [ERROR] Обязательный файл "%CURRENT_FILE%" не найден.
+    > "%FULL_TEMP_DIR%\%CURRENT_ID%.failed" echo Required packer input not found: %CURRENT_FILE%
+    > "%FULL_TEMP_DIR%\%CURRENT_ID%.ready" echo done
+    exit /b 1
 )
 
 set "PACK_ERROR_FILE=%CURRENT_FILE%"
@@ -300,55 +317,16 @@ set "W_TMP=%W_DIR%\%W_ID%.tmp"
 set "W_STAGED=%W_DIR%\%W_ID%.staged"
 set "W_OUT=%W_DIR%\%W_ID%.chunk"
 set "W_RDY=%W_DIR%\%W_ID%.ready"
-
-rem 1. Подготовка staged: Удаляем старые хеши и лишние пустые строки.
-rem    ВАЖНО: Логика $cleaned изменена, чтобы соответствовать awk:
-rem    если файл пуст (или стал пустым), он записывается как "" (без EOL).
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$path='%W_FILE:\=\\%'; $staged='%W_STAGED:\=\\%'; $isPs1=[bool]($path -match '\.ps1$'); $enc=[System.Text.UTF8Encoding]::new($isPs1); $content=[IO.File]::ReadAllText($path,$enc).TrimEnd([char]13,[char]10); $eol=if($isPs1 -or $content -match \"`r`n\"){\"`r`n\"}else{\"`n\"}; $lines=@($content -split \"`r?`n\"); while($lines.Count -gt 0){$last=($lines[-1] -replace \"`r$\",''); if([string]::IsNullOrWhiteSpace($last)){$lines=$lines[0..($lines.Count-2)]}elseif($last -match '^\s*(::|#)?\s*checksum:MD5=[0-9a-fA-F]{32}\s*$'){$lines=$lines[0..($lines.Count-2)]; if($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace(($lines[-1] -replace \"`r$\",''))){$lines=$lines[0..($lines.Count-2)]}}else{break}}; $cleaned=if($lines.Count -gt 0){($lines -join $eol)+$eol}else{''}; [IO.File]::WriteAllText($staged,$cleaned,$enc)" >nul 2>&1
-
-if not exist "%W_STAGED%" (
-    echo :: ERROR_PACKING_FILE: %W_FILE% > "%W_OUT%"
-    echo done > "%W_RDY%"
-    exit /b
+if not exist "%W_DIR%" md "%W_DIR%" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File "system\packer_worker.ps1" -FilePath "%W_FILE%" -Id "%W_ID%" -TempDir "%W_DIR%"
+set "W_RC=%errorlevel%"
+if not "%W_RC%"=="0" (
+    if not exist "%W_DIR%\%W_ID%.failed" (
+        > "%W_DIR%\%W_ID%.failed" echo Worker exited with code %W_RC%
+    )
 )
-
-rem 2. Считаем MD5
-set "W_HASH="
-for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%W_STAGED%" MD5 2^>nul') do set "W_HASH=%%H" & goto :HASH_DONE
-:HASH_DONE
-if not defined W_HASH set "W_HASH=d41d8cd98f00b204e9800998ecf8427e"
-
-rem 2.1 Сохраняем хеш
-echo %W_HASH% > "%W_DIR%\%W_ID%.md5"
-
-rem 3. Определяем префикс
-set "W_PREFIX=#"
-for %%F in ("%W_FILE%") do set "W_EXT=%%~xF"
-if /i "%W_EXT%"==".bat" set "W_PREFIX=::"
-if /i "%W_EXT%"==".cmd" set "W_PREFIX=::"
-
-rem 4. Дописываем checksum
-rem    При append EOL не добавляется, файл кончается на хеше.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$path='%W_FILE:\=\\%'; $staged='%W_STAGED:\=\\%'; $isPs1=[bool]($path -match '\.ps1$'); $enc=[System.Text.UTF8Encoding]::new($isPs1); $txt=[IO.File]::ReadAllText($staged,$enc); $hash='%W_HASH%'.ToLower(); $prefix='%W_PREFIX%'; $line=$prefix+\" checksum:MD5=\"+$hash; [IO.File]::AppendAllText($staged,$line,$enc)" >nul 2>&1
-
-rem 5. Кодируем
-certutil -f -encode "%W_STAGED%" "%W_TMP%" >nul 2>&1
-if not exist "%W_TMP%" (
-    echo :: ERROR_PACKING_FILE: %W_FILE% > "%W_OUT%"
-    del /q "%W_STAGED%" 2>nul
-    echo done > "%W_RDY%"
-    exit /b
+if not exist "%W_DIR%\%W_ID%.ready" (
+    > "%W_DIR%\%W_ID%.ready" echo done
 )
-(
-    echo.
-    echo :: BEGIN_B64_ %W_FILE%
-    findstr /v /c:"-----" "%W_TMP%"
-    echo :: END_B64_ %W_FILE%
-) > "%W_OUT%"
-
-del /q "%W_TMP%" 2>nul
-del /q "%W_STAGED%" 2>nul
-echo done > "%W_RDY%"
-exit /b
+exit /b %W_RC%
+:: checksum:MD5=96aec18d739ddadd36abaf340431b787

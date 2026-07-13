@@ -10,12 +10,12 @@ services:
     volumes:
       - imagebuilder-cache:/cache
       - ipk-cache:/builder_workspace/dl
-      - ../${HOST_PKGS_DIR}:/input_packages
-      - ../${HOST_FILES_DIR}:/overlay_files
-      - ../firmware_output:/output
-      - ../profiles:/profiles
-      - ./openssl.cnf:/openssl.cnf
-      - ./ib_builder.sh:/ib_builder.sh
+      - ../${HOST_PKGS_DIR}:/input_packages${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../${HOST_FILES_DIR}:/overlay_files${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../firmware_output:/output${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../profiles:/profiles${ROUTERFW_BIND_PROFILES_SUFFIX:-}
+      - ./openssl.cnf:/openssl.cnf${ROUTERFW_BIND_RO_SUFFIX:-}
+      - ./ib_builder.sh:/ib_builder.sh${ROUTERFW_BIND_RO_SUFFIX:-}
     command: /bin/bash /ib_builder.sh
 
   builder-oldwrt:
@@ -28,15 +28,15 @@ services:
     volumes:
       - imagebuilder-cache:/cache
       - ipk-cache:/builder_workspace/dl
-      - ../${HOST_PKGS_DIR}:/input_packages
-      - ../${HOST_FILES_DIR}:/overlay_files
-      - ../firmware_output:/output
-      - ../profiles:/profiles
-      - ./openssl.cnf:/openssl.cnf
-      - ./ib_builder.sh:/ib_builder.sh
+      - ../${HOST_PKGS_DIR}:/input_packages${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../${HOST_FILES_DIR}:/overlay_files${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../firmware_output:/output${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../profiles:/profiles${ROUTERFW_BIND_PROFILES_SUFFIX:-}
+      - ./openssl.cnf:/openssl.cnf${ROUTERFW_BIND_RO_SUFFIX:-}
+      - ./ib_builder.sh:/ib_builder.sh${ROUTERFW_BIND_RO_SUFFIX:-}
     command: /bin/bash /ib_builder.sh
 
 volumes:
   imagebuilder-cache:
   ipk-cache:
-# checksum:MD5=3f95879910854e4f3ba92510936b335a
+# checksum:MD5=d9d004c701fa3984aa1772a94376f7d3

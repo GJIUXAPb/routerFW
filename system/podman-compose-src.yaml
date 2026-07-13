@@ -2,23 +2,7 @@
 services:
   builder-src-openwrt:
     userns_mode: "keep-id:uid=1000,gid=1000"
-    volumes:
-      - ../profiles:/profiles:ro,z
-      - ../${HOST_PKGS_DIR}:/input_packages:z
-      - ../${HOST_PATCHES_DIR}:/patches:z
-      - ../${HOST_FILES_DIR}:/overlay_files:z
-      - ../${HOST_OUTPUT_DIR}:/output:z
-      - ./openssl.cnf:/openssl.cnf:ro,z
-      - ./src_builder.sh:/src_builder.sh:ro,z
 
   builder-src-oldwrt:
     userns_mode: "keep-id:uid=1000,gid=1000"
-    volumes:
-      - ../profiles:/profiles:ro,z
-      - ../${HOST_PKGS_DIR}:/input_packages:z
-      - ../${HOST_PATCHES_DIR}:/patches:z
-      - ../${HOST_FILES_DIR}:/overlay_files:z
-      - ../${HOST_OUTPUT_DIR}:/output:z
-      - ./openssl.cnf:/openssl.cnf:ro,z
-      - ./src_builder.sh:/src_builder.sh:ro,z
-# checksum:MD5=ea95ac0bd8da38fdac102798f3b82f21
+# checksum:MD5=66a1c424be8b1d6b687216edff78aefa

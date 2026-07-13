@@ -3,22 +3,8 @@ services:
   builder-openwrt:
     user: "0:0"
     userns_mode: "keep-id:uid=0,gid=0"
-    volumes:
-      - ../${HOST_PKGS_DIR}:/input_packages:z
-      - ../${HOST_FILES_DIR}:/overlay_files:z
-      - ../firmware_output:/output:z
-      - ../profiles:/profiles:ro,z
-      - ./openssl.cnf:/openssl.cnf:ro,z
-      - ./ib_builder.sh:/ib_builder.sh:ro,z
 
   builder-oldwrt:
     user: "0:0"
     userns_mode: "keep-id:uid=0,gid=0"
-    volumes:
-      - ../${HOST_PKGS_DIR}:/input_packages:z
-      - ../${HOST_FILES_DIR}:/overlay_files:z
-      - ../firmware_output:/output:z
-      - ../profiles:/profiles:ro,z
-      - ./openssl.cnf:/openssl.cnf:ro,z
-      - ./ib_builder.sh:/ib_builder.sh:ro,z
-# checksum:MD5=1b59133439677db6787d14fa86126f94
+# checksum:MD5=1c5ea163494874de5f56727786adcdf8

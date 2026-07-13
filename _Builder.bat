@@ -1577,6 +1577,11 @@ if not defined base_file (
 set "override_file="
 if /i "%base_file%"=="system/docker-compose.yaml" set "override_file=system/podman-compose.yaml"
 if /i "%base_file%"=="system/docker-compose-src.yaml" set "override_file=system/podman-compose-src.yaml"
+if /i "%CONTAINER_EXE%"=="podman" (
+    set "ROUTERFW_BIND_RW_SUFFIX=:z"
+    set "ROUTERFW_BIND_RO_SUFFIX=:ro,z"
+    set "ROUTERFW_BIND_PROFILES_SUFFIX=:ro,z"
+)
 if defined ROUTERFW_TEST_COMPOSE_LOG goto RUN_COMPOSE_CAPTURE
 if "%COMPOSE_IS_PLUGIN%"=="1" goto RUN_COMPOSE_PLUGIN_ROUTE
 goto RUN_COMPOSE_STANDALONE_ROUTE
@@ -2285,4 +2290,4 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJlYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=ec66f614a9f2e89eaba533d40c8ad14d
+:: checksum:MD5=5bbff2f19890f6966b3aae2bbde2cd35

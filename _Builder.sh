@@ -242,10 +242,21 @@ run_compose() {
     local base="$1"
     shift
     local compose_args=()
+    local env_args=()
     local f
     compose_files_for "$base"
+    if [ "$CONTAINER_RUNTIME" = "podman" ]; then
+        env_args=(
+            "ROUTERFW_BIND_RW_SUFFIX=:z"
+            "ROUTERFW_BIND_RO_SUFFIX=:ro,z"
+            "ROUTERFW_BIND_PROFILES_SUFFIX=:ro,z"
+        )
+    fi
     if [ -n "${ROUTERFW_TEST_COMPOSE_LOG:-}" ]; then
         {
+            if [ ${#env_args[@]} -gt 0 ]; then
+                printf '%s ' "${env_args[@]}"
+            fi
             printf '%s' "${COMPOSE_CMD[*]}"
             for f in "${COMPOSE_FILES[@]}"; do
                 printf ' -f %s' "$f"
@@ -260,7 +271,7 @@ run_compose() {
     for f in "${COMPOSE_FILES[@]}"; do
         compose_args+=(-f "$f")
     done
-    "${COMPOSE_CMD[@]}" "${compose_args[@]}" "$@"
+    env "${env_args[@]}" "${COMPOSE_CMD[@]}" "${compose_args[@]}" "$@"
 }
 
 run_container() {
@@ -314,12 +325,12 @@ try_runtime_candidate() {
             CONTAINER_RUNTIME="podman"
             CONTAINER_LABEL="podman"
             CONTAINER_CMD=(podman)
-            if podman compose version >/dev/null 2>&1; then
-                COMPOSE_CMD=(podman compose)
-                COMPOSE_LABEL="podman compose"
-            elif command -v podman-compose >/dev/null 2>&1 && podman-compose --version >/dev/null 2>&1; then
+            if command -v podman-compose >/dev/null 2>&1 && podman-compose --version >/dev/null 2>&1; then
                 COMPOSE_CMD=(podman-compose)
                 COMPOSE_LABEL="podman-compose"
+            elif podman compose version >/dev/null 2>&1; then
+                COMPOSE_CMD=(podman compose)
+                COMPOSE_LABEL="podman compose"
             else
                 RUNTIME_ERROR_MESSAGE_1="$L_ERR_COMPOSE_PROVIDER_MISSING"
                 RUNTIME_ERROR_MESSAGE_2="$L_ERR_COMPOSE_PROVIDER_MSG"
@@ -2036,4 +2047,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=cd24d6ab6dd0376620f7d85231b28b29
+# checksum:MD5=23e570c4f4f986d280d2a75313558d4b

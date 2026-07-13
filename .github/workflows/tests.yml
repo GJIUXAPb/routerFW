@@ -88,6 +88,35 @@ jobs:
         env:
           ROUTERFW_TEST_MODE: "1"
 
+      - name: Windows packer smoke
+        run: |
+          set ROUTERFW_TEST_MODE=1
+          call _packer.bat
+          if errorlevel 1 exit /b 1
+          if exist temp_packer_worker* exit /b 1
+          if exist _unpacker.bat.new exit /b 1
+        shell: cmd
+
+      - name: Windows unpacker smoke
+        run: |
+          $temp = Join-Path $env:RUNNER_TEMP "routerfw-unpack"
+          New-Item -ItemType Directory -Force -Path $temp | Out-Null
+          Copy-Item _unpacker.bat $temp
+          Push-Location $temp
+          try {
+            cmd /c "call _unpacker.bat"
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+            if (-not (Test-Path "system\version.env")) {
+              exit 1
+            }
+          }
+          finally {
+            Pop-Location
+          }
+        shell: pwsh
+
       - name: Upload Windows tester log
         if: always()
         uses: actions/upload-artifact@v6
@@ -148,35 +177,42 @@ jobs:
       - name: Podman compose smoke
         run: |
           command -v podman-compose >/dev/null
-          COMPOSE_CMD=(podman-compose)
           podman info
-          "${COMPOSE_CMD[@]}" -f system/docker-compose.yaml config >/dev/null
-          "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml config >/dev/null
-          ROUTERFW_RUNTIME=podman bash ./_Builder.sh help >/dev/null
 
           rm -rf firmware_output/imagebuilder/podman-smoke firmware_output/sourcebuilder/podman-smoke
           mkdir -p firmware_output/imagebuilder/podman-smoke firmware_output/sourcebuilder/podman-smoke
 
-          SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/imagebuilder/podman-smoke HOST_PKGS_DIR=./custom_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose.yaml -p podman-smoke-ib build builder-openwrt
-          SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/imagebuilder/podman-smoke HOST_PKGS_DIR=./custom_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose.yaml -p podman-smoke-ib run --rm builder-openwrt sh -lc '
-            id
-            touch /builder_workspace/.routerfw-write-test
-            touch /output/imagebuilder/podman-smoke/.routerfw-output-test
-          '
+          export ROUTERFW_RUNTIME=podman
+          export ROUTERFW_TEST_COMPOSE_BASE=system/docker-compose.yaml
+          export SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf
+          export HOST_OUTPUT_DIR=./firmware_output/imagebuilder/podman-smoke
+          export HOST_PKGS_DIR=./custom_packages/tplink_tl_wr1043nd_v2_24105_ow_full
+          export HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full
+
+          ROUTERFW_TEST_COMPOSE_ARGS='config' bash ./_Builder.sh help >/dev/null
+          ROUTERFW_TEST_COMPOSE_ARGS='-p podman-smoke-ib build builder-openwrt' bash ./_Builder.sh help
+          ROUTERFW_TEST_COMPOSE_ARGS=$(cat <<'ARGS'
+          -p podman-smoke-ib run --rm builder-openwrt sh -lc 'id; touch /builder_workspace/.routerfw-write-test; touch /output/imagebuilder/podman-smoke/.routerfw-output-test'
+          ARGS
+          ) bash ./_Builder.sh help
           test -f firmware_output/imagebuilder/podman-smoke/.routerfw-output-test
           test -w firmware_output/imagebuilder/podman-smoke/.routerfw-output-test
           test "$(stat -c '%u' firmware_output/imagebuilder/podman-smoke/.routerfw-output-test)" = "$(id -u)"
 
-          SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/podman-smoke HOST_PKGS_DIR=./src_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_PATCHES_DIR=./custom_patches/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml -p podman-smoke-src build builder-src-openwrt
-          SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/podman-smoke HOST_PKGS_DIR=./src_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_PATCHES_DIR=./custom_patches/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full "${COMPOSE_CMD[@]}" -f system/docker-compose-src.yaml -p podman-smoke-src run --rm builder-src-openwrt sh -lc '
-            id
-            chown build:build /output
-            sudo -u build sh -lc "
-              id
-              echo ok > /output/result.txt
-            "
-          '
+          export ROUTERFW_TEST_COMPOSE_BASE=system/docker-compose-src.yaml
+          export HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/podman-smoke
+          export HOST_PKGS_DIR=./src_packages/tplink_tl_wr1043nd_v2_24105_ow_full
+          export HOST_PATCHES_DIR=./custom_patches/tplink_tl_wr1043nd_v2_24105_ow_full
+          export HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full
+
+          ROUTERFW_TEST_COMPOSE_ARGS='config' bash ./_Builder.sh help >/dev/null
+          ROUTERFW_TEST_COMPOSE_ARGS='-p podman-smoke-src build builder-src-openwrt' bash ./_Builder.sh help
+          ROUTERFW_TEST_COMPOSE_ARGS=$(cat <<'ARGS'
+          -p podman-smoke-src run --rm builder-src-openwrt sh -lc 'id; sudo -u build sh -lc "id; echo ok > /output/result.txt"'
+          ARGS
+          ) bash ./_Builder.sh help
           test -f firmware_output/sourcebuilder/podman-smoke/result.txt
-          test -r firmware_output/sourcebuilder/podman-smoke/result.txt
+          test -w firmware_output/sourcebuilder/podman-smoke/result.txt
+          test "$(stat -c '%u' firmware_output/sourcebuilder/podman-smoke/result.txt)" = "$(id -u)"
           test "$(cat firmware_output/sourcebuilder/podman-smoke/result.txt)" = "ok"
         shell: bash
