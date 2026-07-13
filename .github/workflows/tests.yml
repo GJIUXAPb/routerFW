@@ -7,6 +7,8 @@ on:
 jobs:
   linux-checks:
     runs-on: ubuntu-latest
+    env:
+      TERM: xterm
     steps:
       - uses: actions/checkout@v5
 
@@ -70,12 +72,6 @@ jobs:
           fi
         shell: bash
 
-      - name: Run bash tester
-        run: bash ./tester.sh
-        shell: bash
-        env:
-          ROUTERFW_TEST_MODE: "1"
-
       - name: Verify Linux unpacker reproducibility
         run: |
           set -e
@@ -94,6 +90,12 @@ jobs:
           cmp -s "$original_unpacker" ./_unpacker.sh
         shell: bash
 
+      - name: Run bash tester
+        run: bash ./tester.sh
+        shell: bash
+        env:
+          ROUTERFW_TEST_MODE: "1"
+
       - name: Upload Linux tester log
         if: always()
         uses: actions/upload-artifact@v6
@@ -106,14 +108,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Run batch tester
-        run: .\tester.bat
-        shell: cmd
-        env:
-          ROUTERFW_TEST_MODE: "1"
-
       - name: Windows packer smoke
         run: |
+          copy /Y _unpacker.bat "%RUNNER_TEMP%\committed-unpacker.bat" >nul
           set ROUTERFW_TEST_MODE=1
           call _packer.bat
           if errorlevel 1 exit /b 1
@@ -122,8 +119,14 @@ jobs:
         shell: cmd
 
       - name: Verify Windows unpacker reproducibility
-        run: git diff --exit-code -- _unpacker.bat
+        run: fc /b "%RUNNER_TEMP%\committed-unpacker.bat" _unpacker.bat
         shell: cmd
+
+      - name: Run batch tester
+        run: .\tester.bat
+        shell: cmd
+        env:
+          ROUTERFW_TEST_MODE: "1"
 
       - name: Windows unpacker smoke
         run: |
