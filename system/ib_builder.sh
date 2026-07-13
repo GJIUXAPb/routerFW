@@ -22,10 +22,11 @@ echo -e "tries = 5\ntimeout = 20\nretry_connrefused = on\nwaitretry = 2" > ~/.wg
 # === 1. ПОДГОТОВКА КОНФИГУРАЦИИ ===
 log "Normalizing config..."
 cat "/profiles/$CONF_FILE" | sed '1s/^\xEF\xBB\xBF//' | tr -d '\r' > /tmp/clean_config.env
+unset PKGS IMAGE_PKGS EXTRA_IMAGE_NAME IMAGE_EXTRA_NAME CUSTOM_KEYS CUSTOM_REPOS DISABLED_SERVICES ROOTFS_SIZE KERNEL_SIZE SRC_PACKAGES
 source /tmp/clean_config.env
 
 # Обратная совместимость: поддержка старых имён переменных в профилях
-PKGS="${IMAGE_PKGS:-$PKGS}"
+PKGS="${IMAGE_PKGS:-${PKGS:-}}"
 EXTRA_IMAGE_NAME="${IMAGE_EXTRA_NAME:-$EXTRA_IMAGE_NAME}"
 
 [ -z "$IMAGEBUILDER_URL" ] && error "IMAGEBUILDER_URL is empty! Config parse failed."
@@ -68,6 +69,10 @@ else
     fi
 fi
 
+# Compose recreates containers, but failed/interrupted local runs can still leave
+# mutated ImageBuilder state. Always unpack into a clean workspace.
+find . -mindepth 1 -maxdepth 1 ! -name 'dl' -exec rm -rf {} +
+
 # Распаковка
 log "Extracting SDK..."
 # Проверяем расширение по имени файла, а не по ссылке
@@ -81,6 +86,40 @@ fi
 # Проверка, что распаковка прошла успешно (поддержка opkg и apk)
 [ -f "repositories.conf" ] || [ -f "repositories" ] || [ -f "Makefile" ] || error "Extraction failed: Build root not found!"
 
+# Some custom ImageBuilder archives omit opkg arch declarations, which makes
+# bundled target packages (even libc) look incompatible.
+if [ -f "repositories.conf" ] && ! grep -q '^arch[[:space:]]' repositories.conf; then
+    IB_ARCH="${SRC_ARCH:-}"
+    if [ -z "$IB_ARCH" ] && [ -f "packages/Packages" ]; then
+        IB_ARCH=$(awk '/^Architecture: / && $2 != "all" { print $2; exit }' packages/Packages)
+    fi
+    if [ -n "$IB_ARCH" ]; then
+        tmp_repos=$(mktemp)
+        {
+            echo "arch all 1"
+            echo "arch noarch 1"
+            echo "arch $IB_ARCH 10"
+            cat repositories.conf
+        } > "$tmp_repos"
+        mv "$tmp_repos" repositories.conf
+    fi
+fi
+if [ -f "repositories.conf" ] && grep -q '^src[[:space:]]\+imagebuilder[[:space:]]\+file:packages' repositories.conf && [ ! -f "packages/Packages.sig" ]; then
+    sed -i '/^option[[:space:]]\+check_signature/d' repositories.conf
+fi
+
+# Some custom 24.10 ImageBuilder archives ship libgcc1 as the provider for the
+# virtual libgcc dependency, but their Makefile installs libc before libgcc1.
+if [ -f "Makefile" ] && ls packages/libgcc1_*.ipk 1>/dev/null 2>&1 && ! grep -q 'libgcc1_\\*.ipk' Makefile; then
+    awk '
+        /libc_[*][.]ipk/ && !done {
+            print "\t$(OPKG) install $(firstword $(wildcard $(LINUX_DIR)/libgcc1_*.ipk $(PACKAGE_DIR)/libgcc1_*.ipk))";
+            done=1
+        }
+        { print }
+    ' Makefile > Makefile.routerfw && mv Makefile.routerfw Makefile
+fi
+
 # --- 3. ПОДГОТОВКА ОКРУЖЕНИЯ ---
 if [ -f /openssl.cnf ]; then
     log "Applying OpenSSL Fix..."
@@ -92,11 +131,20 @@ if [ -d /input_packages ]; then
     log "Processing input packages..."
     # КРИТИЧНО: Гарантируем наличие папки перед копированием
     mkdir -p packages/
-    # Удаляем stale локальные пакеты от прошлых запусков
-    rm -f packages/*.apk packages/*.ipk 2>/dev/null || true
+    HAS_CUSTOM_IPK=0
 
     # Копируем IPK (старый формат)
-    cp /input_packages/*.ipk packages/ 2>/dev/null || true
+    if ls /input_packages/*.ipk 1>/dev/null 2>&1; then
+        cp /input_packages/*.ipk packages/
+        HAS_CUSTOM_IPK=1
+        rm -f packages/Packages packages/Packages.gz packages/Packages.manifest packages/Packages.sig 2>/dev/null || true
+    fi
+
+    # Local IPK feeds are unsigned. Keep signature checks for normal builds,
+    # but allow explicitly supplied local packages to be indexed and installed.
+    if [ "$HAS_CUSTOM_IPK" -eq 1 ] && [ -f "repositories.conf" ]; then
+        sed -i '/^option[[:space:]]\+check_signature/d' repositories.conf
+    fi
 
     # Обработка APK (новый формат)
     if ls /input_packages/*.apk 1>/dev/null 2>&1; then
@@ -278,4 +326,4 @@ echo -e "\n============================================================"
 echo -e "=== Build completed in ${ELAPSED}s."
 echo -e "=== Artifacts: firmware_output/$REL_PATH/$TIMESTAMP"
 echo -e "============================================================\n"
-# checksum:MD5=13d9c0e22299b3f3ba2ff8980859c985
+# checksum:MD5=86e00c325d09a5b2a65277988c24d3b7
