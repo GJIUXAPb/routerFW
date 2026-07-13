@@ -245,7 +245,7 @@ jobs:
           [IO.File]::WriteAllLines((Join-Path $temp "_unpacker.bat"), [string[]]$out, (New-Object Text.UTF8Encoding($false)))
           Push-Location $temp
           try {
-            cmd /c "call _unpacker.bat" | Out-Null
+            cmd /c "call _unpacker.bat >nul 2>nul"
             if ($LASTEXITCODE -eq 0) {
               Write-Error "Corrupt unpacker unexpectedly succeeded"
               exit 1
