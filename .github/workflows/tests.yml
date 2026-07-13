@@ -194,6 +194,15 @@ jobs:
             $src = $src -replace [char]13, [char]10
             $dst = [IO.File]::ReadAllText($dstPath, $enc) -replace ([char]13 + [char]10), [char]10
             $dst = $dst -replace [char]13, [char]10
+            if ($rel -eq "system\version.env") {
+              $srcVersion = [regex]::Match($src, "(?m)^ROUTERFW_VERSION=(.+)$").Groups[1].Value.Trim()
+              $dstVersion = [regex]::Match($dst, "(?m)^ROUTERFW_VERSION=(.+)$").Groups[1].Value.Trim()
+              if (-not $srcVersion -or $srcVersion -ne $dstVersion) {
+                Write-Error "Version value mismatch in $rel"
+                exit 1
+              }
+              continue
+            }
             if ($src -ne $dst) {
               Write-Error "Roundtrip content mismatch: $rel"
               exit 1
