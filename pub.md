@@ -1,119 +1,127 @@
-# routerFW v4.60 — Release Notes
+# RouterFW 4.70
 
-> 📅 8 апреля 2026
+Версия 4.70 — крупное обновление стабильности, переносимости и контроля качества. Главный фокус релиза: полноценная поддержка Docker/Podman, одинаковое поведение Windows и Linux сборщиков, более надежный packer/unpacker и проверяемая CI/CD-цепочка.
 
----
+## Главное
 
-## 🇷🇺 Русская версия
+- Добавлена поддержка выбора контейнерного рантайма: `Docker` или `Podman`.
+- В `_Builder.bat` и `_Builder.sh` добавлены ключи `--runtime=auto|docker|podman` и `-r auto|docker|podman`.
+- При обычном интерактивном запуске, если доступны и Docker, и Podman, билдер спрашивает, какой движок использовать.
+- В меню теперь явно показывается активный движок сборки: `через docker` или `через podman`.
+- Для WSL добавлен fallback на Windows CLI: `docker.exe` и `podman.exe`.
+- Версия проекта вынесена в `system/version.env`, синхронизирована с BAT/SH билдерами, README и архитектурной документацией.
 
-### 🛡️ APK Scanner — главное нововведение
+## Docker и Podman
 
-Встроенный сканер для автоматической валидации и переименования `.apk`-пакетов перед сборкой в режиме Image Builder.
+- Реализована единая runtime-обвязка для `docker compose`, `docker-compose`, `podman compose`, `podman-compose`, `docker.exe compose` и `podman.exe compose`.
+- Добавлены Podman compose override-файлы:
+  - `system/podman-compose.yaml`
+  - `system/podman-compose-src.yaml`
+- Compose-монты получили runtime-aware suffix-переменные для корректной работы bind mount'ов в Docker, Podman и SELinux/Podman окружениях.
+- Исправлена работа SourceBuilder smoke-сценариев с output-каталогами.
+- Убрана глобальная очистка Docker/Podman через опасный `system prune`; очистка теперь ограничена проектными контейнерами, томами и профилями.
 
-**Зачем:** Image Builder отвергает пакеты, если имя файла не совпадает с внутренней версией (баг `luci-i18n-podkop-ru`). Сканер читает метаданные через Docker (`apk adbdump`) и исправляет имена автоматически.
+## Builder UI и CLI
 
-**Что умеет:**
-- **Чтение метаданных** — через `docker run alpine:latest apk adbdump` (без unzip, единственный надёжный метод)
-- **Валидация архитектуры** — корректная обработка `noarch`/`all` (универсальные пакеты: скрипты, LuCI, конфиги) для любых устройств
-- **Проверка имени файла** — сравнение `{name}-{version}` из имени файла с метаданными пакета
-- **Автоматическое переименование** — с интерактивным подтверждением пользователя
-- **Двуязычный интерфейс** — язык передаётся от билдера (`APK_SCANNER_LANG=RU|EN`, `-Lang` параметр)
+- Главное окно Windows BAT builder снова получает корректный заголовок.
+- Окна запущенных сборок в BAT-версии снова получают уникальные имена, чтобы их было легко отличать.
+- CLI-команды стали строже и понятнее:
+  - `build`
+  - `build-all`
+  - `ib build`
+  - `src build`
+  - `--lang`
+  - `--runtime`
+- В SH и BAT версиях выровнен набор runtime-тестов и CLI-проверок.
+- Массовая сборка в SH получила параллельный режим с лимитом по умолчанию `ROUTERFW_JOBS=6`.
+- Параллельные тесты добавлены для SH и BAT tester'ов через `ROUTERFW_TEST_JOBS`.
 
-**Режимы работы:**
-- **Автоматический** — запускается перед `docker compose up` при наличии `.apk` файлов в `custom_packages/<профиль>/`
-- **Ручной** — кнопка `[S] APK Scanner` в главном меню (только IB-режим): выбор профиля → сканирование → отчёт
+## Packer / Unpacker
 
-**Интеграция в процесс сборки:** при обнаружении проблем сканер выдаёт предупреждения и предлагает продолжить сборку или отменить.
+- Packer обновлен до `2.7MT` для Windows и Linux.
+- Windows packer переведен на отдельный PowerShell worker: `system/packer_worker.ps1`.
+- Исправлены ошибки CMD quoting при запуске worker-процессов.
+- Исправлены ложные успешные завершения packer'а, когда `_unpacker.bat.new` не был заменен на `_unpacker.bat`.
+- Добавлена строгая обработка ошибок:
+  - не удалось удалить старый `.new`;
+  - не удалось создать временную папку;
+  - worker завершился с ошибкой;
+  - worker завис;
+  - итоговый unpacker не был заменен.
+- Unpacker теперь строже проверяет Base64 payload и checksum перед записью файлов.
+- Поврежденный payload теперь приводит к ошибке распаковки, а не к тихой записи битого файла.
+- Нормальный запуск builder больше не запускает долгую проверку/восстановление ресурсов каждый раз; unpacker вызывается только при первом bootstrap, repair или отсутствии ключевых файлов.
 
-### 📋 Новые профили
+## ImageBuilder и SourceBuilder
 
-- **Radxa ROCK 5T** — добавлен профиль `radxa_rock_5t_25122_ow_full.conf` (rockchip/armv8, aarch64_generic)
+- ImageBuilder теперь очищает рабочее дерево перед новой распаковкой SDK/ImageBuilder, чтобы не ловить состояние от прерванных предыдущих запусков.
+- Улучшена совместимость с кастомными ImageBuilder-архивами без arch-деклараций в `repositories.conf`.
+- Для локальных IPK-пакетов корректно пересоздается локальный индекс и ослабляется signature check только там, где это действительно нужно.
+- Добавлен фикс порядка установки `libgcc1` для некоторых кастомных 24.10 ImageBuilder архивов.
+- Улучшена обработка output ownership после сборок в Docker и Podman.
+- SourceBuilder получил расширенный пример `hooks.sh` для профиля `rax3000m_emmc_test_new`.
 
-### 📚 Документация
+## Профили
 
-- **Урок 8** — «Встраивание APK/IPK в Image Builder»: пошаговое руководство, реальные проблемы и FAQ
-- **Обновлены диаграммы архитектуры** (RU/EN) — добавлены блок-схемы APK Scanner, интеграции в `build_routine`, кнопки `[S]` в меню
-- **Обновлены README** (RU/EN) — раздел про APK Scanner, описание директории `custom_packages/`
-- **Обновлены индексы документации** (RU/EN) — добавлена ссылка на Урок 8
+- Профиль `me.conf` переименован в нормализованное имя:
+  - `cmcc_rax3000me_24105_iw_full.conf`
+- Убрано проблемное зеркало `immortalwrt.kyarucloud.moe` из профилей, где оно ломало загрузку ImageBuilder.
+- Обновлены и вычищены проблемные пакеты в ряде профилей:
+  - `cmcc_rax3000m_24105_ow_full`
+  - `cmcc_rax3000me_24105_iw_full`
+  - `giga_24105_main_full`
+  - `giga_24105_rep_full`
+  - `netcore_n60_pro_2410_pad`
+  - `rax3000m_emmc_test_new`
+- Исправлены профили, которые не собирались из-за устаревших, переименованных или недоступных пакетов.
 
-### 🔧 Улучшения и исправления
+## CI/CD и качество
 
-- **Исправлена валидация архитектуры** в `import_ipk` — теперь `noarch` корректно определяется как универсальная архитектура (наряду с `all`)
-- **Выравнивание главного меню** — исправлено форматирование кнопок, `[S]` отображается только в IB-режиме, защита от запуска в SOURCE-режиме
-- **Обновлены дистрибутивы** — пересобраны архивы для Windows и Linux
+- Добавлен полноценный workflow `.github/workflows/tests.yml`.
+- Проверяются Linux, Windows, Docker smoke и Podman smoke.
+- Добавлены проверки:
+  - shell syntax;
+  - ShellCheck;
+  - синхронизация версии;
+  - локализация RU/EN;
+  - BOM expectations;
+  - запрет global prune;
+  - deterministic packer output;
+  - unpacker smoke;
+  - corrupt unpacker smoke;
+  - docker compose smoke;
+  - podman compose smoke.
+- GitHub Actions обновлены на Node 24-совместимые версии:
+  - `actions/checkout@v5`
+  - `actions/upload-artifact@v6`
+- При любом результате тестов выгружаются tester logs для Linux и Windows.
 
-### 📊 Статистика изменений
+## Документация
 
-| Файл | Изменения |
-|---|---|
-| `system/apk_scanner.ps1` | +211 строк (новый файл) |
-| `system/apk_scanner.sh` | +236 строк (новый файл) |
-| `docs/08-ib-apk-import-embed.md` | +220 строк (новый урок) |
-| `_Builder.bat` | ~50 строк изменений |
-| `_Builder.sh` | ~50 строк изменений |
-| Документация (RU/EN) | ~500 строк обновлений |
+- README обновлен под Docker/Podman runtime model.
+- Добавлена доверенная модель профилей и пакетов: сторонние `.conf`, `hooks.sh`, патчи, репозитории и локальные пакеты считаются доверенным вводом.
+- Архитектурная документация обновлена до версии 4.70.
+- APK Scanner отмечен как часть ветки 4.70.
 
----
+## Важные замечания
 
-## 🇬🇧 English Version
+- По умолчанию используется `ROUTERFW_RUNTIME=auto`.
+- Если в системе доступны оба движка, интерактивный запуск спросит выбор.
+- Для автоматизации и CI лучше явно указывать runtime:
 
-### 🛡️ APK Scanner — Major Feature
+```bash
+./_Builder.sh --runtime=docker build 1
+./_Builder.sh --runtime=podman build 1
+```
 
-Built-in scanner for automatic validation and renaming of `.apk` packages before building in Image Builder mode.
+```bat
+_Builder.bat --runtime=docker build 1
+_Builder.bat --runtime=podman build 1
+```
 
-**Why:** Image Builder rejects packages if the filename doesn't match the internal version (`luci-i18n-podkop-ru` bug). The scanner reads metadata via Docker (`apk adbdump`) and fixes filenames automatically.
+- В WSL нативная команда `podman` может отсутствовать, но если установлен Windows Podman, SH builder умеет использовать `podman.exe`.
+- После обычного `git clone` на Linux права запуска могут зависеть от Git/FS. В CI права нормализуются через `chmod +x`.
 
-**Capabilities:**
-- **Metadata extraction** — via `docker run alpine:latest apk adbdump` (no unzip needed, the only reliable method)
-- **Architecture validation** — proper handling of `noarch`/`all` (universal packages: scripts, LuCI, configs) for any device
-- **Filename validation** — compares `{name}-{version}` from filename against package metadata
-- **Automatic renaming** — with interactive user confirmation
-- **Bilingual interface** — language passed from builder (`APK_SCANNER_LANG=RU|EN`, `-Lang` parameter)
+## Итог
 
-**Operating modes:**
-- **Automatic** — triggers before `docker compose up` when `.apk` files exist in `custom_packages/<profile>/`
-- **Manual** — `[S] APK Scanner` button in main menu (IB mode only): select profile → scan → report
-
-**Build integration:** when issues are found, the scanner reports warnings and offers to continue or cancel the build.
-
-### 📋 New Profiles
-
-- **Radxa ROCK 5T** — added `radxa_rock_5t_25122_ow_full.conf` profile (rockchip/armv8, aarch64_generic)
-
-### 📚 Documentation
-
-- **Lesson 8** — "Embedding APK/IPK in Image Builder": step-by-step guide, real-world issues, and FAQ
-- **Architecture diagrams updated** (RU/EN) — added flowcharts for APK Scanner, `build_routine` integration, `[S]` menu button
-- **READMEs updated** (RU/EN) — APK Scanner section, `custom_packages/` directory description
-- **Documentation indexes updated** (RU/EN) — Lesson 8 link added
-
-### 🔧 Improvements & Fixes
-
-- **Architecture validation fix** in `import_ipk` — `noarch` now correctly recognized as universal architecture (alongside `all`)
-- **Main menu alignment** — fixed button formatting, `[S]` only shown in IB mode, guard against running in SOURCE mode
-- **Distribution archives rebuilt** — updated Windows and Linux packages
-
-### 📊 Change Statistics
-
-| File | Changes |
-|---|---|
-| `system/apk_scanner.ps1` | +211 lines (new file) |
-| `system/apk_scanner.sh` | +236 lines (new file) |
-| `docs/08-ib-apk-import-embed.md` | +220 lines (new lesson) |
-| `_Builder.bat` | ~50 lines changed |
-| `_Builder.sh` | ~50 lines changed |
-| Documentation (RU/EN) | ~500 lines updated |
-
----
-
-## Коммиты (7)
-
-| Хеш | Описание |
-|---|---|
-| `6e2c6b0` | APK Scanner: ядро (скрипты ps1/sh), профиль Radxa ROCK 5T, исправление noarch в import_ipk |
-| `fd131ab` | Кнопка [S] в меню, ручной запуск сканера с выбором профиля |
-| `ac00d6a8` | Передача языка от билдера в сканер (APK_SCANNER_LANG / -Lang) |
-| `befc0026` | Интеграция сканера в build_routine, добавление в packer/unpacker, тег 4.60 |
-| `2708949` | Документация: Урок 8, обновление архитектуры, README |
-| `289db58b` | Форматирование меню: выравнивание кнопок, защита [S] в SOURCE-режиме |
-| `689e496` | Финальная правка форматирования меню, обновление checksum |
+RouterFW 4.70 делает проект заметно надежнее для повседневной сборки: меньше ручных действий, больше проверок, безопаснее packer/unpacker, понятнее runtime-выбор и полноценная проверка Docker/Podman на CI.

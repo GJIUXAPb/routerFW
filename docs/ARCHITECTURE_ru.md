@@ -7,7 +7,7 @@
 
 # routerFW — Архитектура и поток процессов
 
-> Версия: 4.70. Обновлено: 2026-04.
+> Версия: 4.70. Обновлено: 2026-07.
 
 ---
 
@@ -26,7 +26,7 @@
 | Команда (алиасы) | Аргументы | Описание |
 |------------------|-----------|----------|
 | `build`, `b` | `<id>` | Сборка выбранного профиля (id — номер или имя). |
-| `build-all`, `a`, `all` | — | Сборка всех профилей (Linux: параллельно в фоне). |
+| `build-all`, `a`, `all` | — | Сборка всех профилей в текущем режиме; параллелизм управляется `ROUTERFW_JOBS` (по умолчанию 6 в Bash). |
 | `edit`, `e` | `[id]` | Редактирование профиля в $EDITOR; без id — интерактивный выбор. |
 | `menuconfig`, `k` | `<id>` | Запуск menuconfig (только Source Builder). |
 | `import`, `i` | `<id>` | Импорт .ipk/.apk в дерево профиля (только Source Builder, поддержка APK с v4.50). |
@@ -38,6 +38,8 @@
 | `check-clear` | `[<id>]` | Очистить checksum:MD5 из всех файлов или одного профиля. |
 | `help`, `-h`, `--help` | — | Вывод справки по CLI. |
 | *(позиционно)* | `<id>` | Одно число = сборка профиля с этим индексом. |
+
+**Выбор контейнерного рантайма:** `--runtime=auto|docker|podman`, короткий ключ `-r auto|docker|podman` или переменная окружения `ROUTERFW_RUNTIME`. В режиме `auto`, если доступны и Docker, и Podman, интерактивный запуск спрашивает пользователя, что использовать; неинтерактивные команды выбирают доступный вариант без меню. В WSL Bash-версия умеет fallback на `docker.exe` / `podman.exe`, если нативный Linux CLI недоступен.
 
 **Тестовые оболочки CLI:** `tester.bat` и `tester.sh` запускают билдеры с аргументами и проверяют коды выхода и вывод; выполняют только безопасные проверки (без сборок, очистки и menuconfig). Логи и артефакты в `.gitignore`.
 
@@ -53,21 +55,29 @@
   ├─ [2] Детектор языка (взвешенная оценка: LANG env +4, locale +3, timezone +2; в WSL ещё +5 по Get-WinSystemLocale)
   │        └─ загружает system/lang/{ru|en}.env  →  устанавливает переменные L_* / H_*
   │
-  ├─ [3] Проверка Docker (docker --version, docker-compose / docker compose)
+  ├─ [3] Разбор runtime: ROUTERFW_RUNTIME / --runtime / -r → auto, docker или podman
   │
-  ├─ [4] Исправление учётных данных Docker (.docker_tmp/config.json, удаляет credsStore/credHelpers)
+  ├─ [4] resolve_runtime:
+  │        Docker: docker compose / docker-compose / docker.exe compose
+  │        Podman: podman compose / podman-compose / podman.exe compose
+  │        auto: при двух доступных движках интерактивно спрашивает пользователя
   │
-  ├─ [5] Автораспаковка (_unpacker.sh / _unpacker.bat, если присутствует)
+  ├─ [5] Исправление Docker credentials только для Docker runtime
+  │        (.docker_tmp/config.json, удаляет credsStore/credHelpers)
   │
-  ├─ [6] Инициализация папок (profiles/, custom_files/, firmware_output/, custom_packages/,
+  ├─ [6] Выборочная распаковка (_unpacker.sh / _unpacker.bat):
+  │        только bootstrap / ROUTERFW_REPAIR=1 / отсутствующие ключевые файлы
+  │
+  ├─ [7] Инициализация папок (profiles/, custom_files/, firmware_output/, custom_packages/,
   │                            src_packages/, custom_patches/;
   │                            firmware_output/imagebuilder/ и firmware_output/sourcebuilder/,
   │                            плюс подкаталоги по профилю imagebuilder/<профиль>, sourcebuilder/<профиль> — на обеих платформах с 4.45)
   │
-  ├─ [7] Миграция переменных профилей  PKGS→IMAGE_PKGS, EXTRA_IMAGE_NAME→IMAGE_EXTRA_NAME
+  ├─ [8] Миграция переменных профилей  PKGS→IMAGE_PKGS, EXTRA_IMAGE_NAME→IMAGE_EXTRA_NAME
   │        (идемпотентно, выполняется при каждом запуске)
   │
-  └─ [8] Маппинг архитектур  SRC_ARCH автозаполняется по SRC_TARGET/SRC_SUBTARGET
+  └─ [9] Маппинг архитектур  SRC_ARCH автозаполняется по SRC_TARGET/SRC_SUBTARGET
+          только для профилей, где SRC_ARCH отсутствует
 ```
 
 **Локализация (шаг [2]):** строки интерфейса вынесены в словари `system/lang/ru.env` и `system/lang/en.env` (единый псевдо-формат: `KEY={C_VAL}текст{C_RST}`, без кавычек; `#` — комментарий). Два независимых загрузчика подставляют плейсхолдеры цветов (`{C_VAL}`, `{C_RST}`, `{C_ERR}` и др.) в значения и присваивают переменные `L_*` / `H_*`:
@@ -83,7 +93,8 @@
   ├─ [номер]      Собрать выбранный профиль
   ├─ [M]         Переключить режим сборки: IMAGE ↔ SOURCE
   ├─ [E]         Редактор: открыть папку профиля и профиль в $EDITOR
-  ├─ [A]         Параллельная сборка ВСЕХ профилей (только Linux, фоновые задачи + спиннер)
+  ├─ [A]         Параллельная сборка ВСЕХ профилей в текущем режиме
+  │              (лимит ROUTERFW_JOBS, логи в firmware_output/.build_logs/)
   ├─ [K]         Menuconfig (только Source Builder)
   ├─ [C]         Мастер очистки (кэш, тома, полный сброс)
   ├─ [W]         Мастер создания нового профиля  →  system/create_profile.sh / .ps1  (выход: 0, как в главном меню)
@@ -116,7 +127,8 @@
 ```
 system/apk_scanner.sh / system/apk_scanner.ps1  (v1.0, с v4.70)
   │
-  ├─ Запуск: АВТО (перед docker compose up в IB-режиме, при наличии .apk в custom_packages/)
+  ├─ Запуск: АВТО (перед запуском выбранного compose runtime в IB-режиме,
+  │                при наличии .apk в custom_packages/)
   │           или РУЧНОЙ (кнопка [S] в главном меню → выбор профиля)
   │
   ├─ Параметры:  $1 = PROFILE_ID,  $2 = TARGET_ARCH,  env: APK_SCANNER_LANG=RU|EN
@@ -126,7 +138,7 @@ system/apk_scanner.sh / system/apk_scanner.ps1  (v1.0, с v4.70)
   │        └─ Нет файлов → выход 0 (тихо)
   │
   ├─ [2] Для каждого APK:
-  │        docker run --rm alpine:latest apk adbdump -- /input/<file>.apk
+  │        выбранный runtime run --rm alpine:latest apk adbdump -- /input/<file>.apk
   │        │
   │        ├─ Читает .PKGINFO из контейнера (без unzip — единственный надёжный метод)
   │        ├─ Парсит: Package (имя), Version, Arch
@@ -164,12 +176,12 @@ build_routine(profile.conf)  [IB-режим]
   │           ├─ Y → continue
   │           └─ n → abort
   │
-  └─ docker compose up  →  стандартный IB-процесс
+  └─ run_compose up  →  стандартный IB-процесс через Docker или Podman
 ```
 
-**Почему `alpine:latest` не удаляется:** Это служебный образ для сканирования. `docker run --rm` очищает контейнеры, но образ остаётся для повторных запусков. Занимает ~7 МБ.
+**Почему `alpine:latest` не удаляется:** Это служебный образ для сканирования. `run --rm` очищает контейнеры, но образ остаётся для повторных запусков. Занимает ~7 МБ.
 
-**Зависимости:** Docker (для `apk adbdump`), доступ к `alpine:latest` (pull при первом запуске). Не требует `unzip`, `jq` или других утилит — всё внутри контейнера Alpine.
+**Зависимости:** выбранный контейнерный runtime (Docker или Podman) для `apk adbdump`, доступ к `alpine:latest` (pull при первом запуске). Не требует `unzip`, `jq` или других утилит — всё внутри контейнера Alpine.
 
 ---
 
@@ -187,7 +199,9 @@ _Builder.sh/bat  →  build_routine(profile.conf)
   │
   ├─ Экспорт переменных: SELECTED_CONF, HOST_FILES_DIR, HOST_PKGS_DIR, HOST_OUTPUT_DIR
   │
-  ├─ docker compose -f system/docker-compose.yaml up --build
+  ├─ run_compose -f system/docker-compose.yaml up --build
+  │     (для Podman добавляется system/podman-compose.yaml;
+  │      mount suffix: :z / :ro,z; при .exe bridge используется --env-file)
   │     │
   │     │  Монтирование томов:
   │     │    imagebuilder-cache:/cache
@@ -200,12 +214,12 @@ _Builder.sh/bat  →  build_routine(profile.conf)
   │     └─ запускает: /bin/bash /ib_builder.sh
   │               │
   │               ├─ [1] Нормализация профиля (удаление BOM, удаление \r)
-  │               ├─ [2] Скачивание / кэширование SDK (.tar.zst или .tar.xz)
+  │               ├─ [2] Очистка рабочей области без удаления dl/ и скачивание/кэширование SDK (.tar.zst или .tar.xz)
   │               │        Сетевой URL → wget → /cache/
   │               │        Локальный путь → firmware_output/... → /cache/
   │               ├─ [3] Распаковка SDK (tar -I zstd или tar -xJf, --strip-components=1)
   │               ├─ [4] Исправление OpenSSL (копирование openssl.cnf для legacy SSL)
-  │               ├─ [5] Копирование .ipk → packages/
+  │               ├─ [5] Копирование .ipk → packages/ и аккуратная чистка локальных индексов пакетов
   │               ├─ [6] Установка ROOTFS_SIZE / KERNEL_SIZE в .config
   │               ├─ [7] Скачивание ключей подписи (CUSTOM_KEYS)
   │               ├─ [8] Добавление кастомных репозиториев (CUSTOM_REPOS → repositories.conf)
@@ -213,7 +227,7 @@ _Builder.sh/bat  →  build_routine(profile.conf)
   │               ├─[10] make image  (2 попытки, повтор при ошибке)
   │               └─[11] Копирование артефактов → firmware_output/imagebuilder/<профиль>/<метка времени>/
   │
-  └─ Исправление прав (alpine chown до UID хост-пользователя)
+  └─ Runtime-aware исправление прав вывода до UID хост-пользователя
 ```
 
 ---
@@ -230,7 +244,9 @@ _Builder.sh/bat  →  build_routine(profile.conf)
   ├─ Проверка Legacy: ветка содержит 19.07 / 18.06  → builder-src-oldwrt (Ubuntu 18.04)
   │                    иначе                          → builder-src-openwrt (Ubuntu 24.04)
   │
-  ├─ docker compose -f system/docker-compose-src.yaml up --build
+  ├─ run_compose -f system/docker-compose-src.yaml up --build
+  │     (для Podman добавляется system/podman-compose-src.yaml;
+  │      SourceBuilder использует keep-id uid/gid для build-пользователя)
   │     │
   │     │  Монтирование томов (постоянные тома Docker):
   │     │    src-workdir:/home/build/openwrt        ← дерево исходников OpenWrt
@@ -263,9 +279,9 @@ _Builder.sh/bat  →  build_routine(profile.conf)
   │               ├─[13] make -j<SRC_CORES>  →  резервный make -j1 V=s при ошибке
   │               └─[14] Копирование артефактов → firmware_output/sourcebuilder/<профиль>/<метка времени>/
   │
-  ├─ Исправление прав (alpine chown под UID хоста, как в Image Builder)
+  ├─ Runtime-aware исправление прав вывода под UID хоста, как в Image Builder
   ├─ После сборки: поиск *imagebuilder*.tar.zst → предложение обновить IMAGEBUILDER_URL в профиле
-  └─ После сборки: предложение интерактивной оболочки (docker compose run --rm -it /bin/bash)
+  └─ После сборки: предложение интерактивной оболочки (run_compose run --rm -it /bin/bash)
 ```
 
 ---
@@ -276,7 +292,7 @@ _Builder.sh/bat  →  build_routine(profile.conf)
 Меню [K]  →  run_menuconfig(profile.conf)
   │
   ├─ Генерирует firmware_output/sourcebuilder/<профиль>/_menuconfig_runner.sh
-  ├─ docker compose run --rm -it builder-src-openwrt /bin/bash
+  ├─ run_compose run --rm -it builder-src-openwrt /bin/bash
   │     │
   │     └─ _menuconfig_runner.sh:
   │           ├─ git init / checkout (если рабочая директория пуста)
@@ -325,7 +341,7 @@ profiles/*.conf  (общий формат для Image Builder и Source Builder
 
 ---
 
-## 10. Docker-образы
+## 10. Контейнерные образы и compose
 
 ```
 Image Builder:
@@ -335,6 +351,12 @@ Image Builder:
 Source Builder:
   system/src.dockerfile         → Ubuntu 24.04  (builder-src-openwrt)
   system/src.dockerfile.legacy  → Ubuntu 18.04  (builder-src-oldwrt)
+
+Compose:
+  system/docker-compose.yaml      → базовый Image Builder compose
+  system/docker-compose-src.yaml  → базовый Source Builder compose
+  system/podman-compose.yaml      → Podman override для Image Builder
+  system/podman-compose-src.yaml  → Podman override для Source Builder
 ```
 
 ---
@@ -355,12 +377,14 @@ nl_test/ nw_test/ ← тестовые распаковки дистрибути
 ## 12. Пакер / Дистрибутив / Генерируемые артефакты
 
 ```
-_packer.sh / _packer.bat  (v2.2 MT)
+_packer.sh / _packer.bat  (v2.7MT)
   └─ Упаковывает проект в самораспаковывающийся однофайловый дистрибутив
         _unpacker.sh  (Linux)   ← НЕ ЧИТАТЬ (огромная base64-нагрузка)
         _unpacker.bat (Windows) ← НЕ ЧИТАТЬ (огромная base64-нагрузка)
 
 ```
+
+Пакер и распаковщик проверяются CI на Linux и Windows: детерминированная регенерация, roundtrip ключевых файлов, строгая проверка Base64/MD5 и отказ от ложного успеха при повреждённой нагрузке. Windows-пакер использует PowerShell worker для безопасной параллельной упаковки без хрупких CMD-кавычек.
 
 ---
 

@@ -7,7 +7,7 @@
 
 # routerFW — Architecture & Process Flow
 
-> Version: 4.70. Last updated: 2026-04.
+> Version: 4.70. Last updated: 2026-07.
 
 ---
 
@@ -26,7 +26,7 @@ Both entry points are **feature-parity** wrappers: same menus, same logic, diffe
 | Command (aliases) | Arguments | Description |
 |-------------------|-----------|-------------|
 | `build`, `b` | `<id>` | Build selected profile (id = number or name). |
-| `build-all`, `a`, `all` | — | Build all profiles (Linux: parallel in background). |
+| `build-all`, `a`, `all` | — | Build all profiles in the current mode; parallelism is controlled by `ROUTERFW_JOBS` (Bash default: 6). |
 | `edit`, `e` | `[id]` | Edit profile in $EDITOR; without id → interactive choice. |
 | `menuconfig`, `k` | `<id>` | Run menuconfig (Source Builder only). |
 | `import`, `i` | `<id>` | Import .ipk/.apk into profile tree (Source Builder only, APK support since v4.50). |
@@ -38,6 +38,8 @@ Both entry points are **feature-parity** wrappers: same menus, same logic, diffe
 | `check-clear` | `[<id>]` | Clear checksum:MD5 from all files or one profile. |
 | `help`, `-h`, `--help` | — | Print CLI usage. |
 | *(positional)* | `<id>` | Single number = build profile with that index. |
+
+**Container runtime selection:** `--runtime=auto|docker|podman`, short form `-r auto|docker|podman`, or the `ROUTERFW_RUNTIME` environment variable. In `auto` mode, an interactive launch asks the user when both Docker and Podman are available; non-interactive commands choose an available runtime without opening a menu. In WSL, the Bash version can fall back to `docker.exe` / `podman.exe` when native Linux CLIs are missing.
 
 **CLI test harnesses:** `tester.bat` and `tester.sh` run the builders with arguments and check exit codes/output; they perform only safe checks (no builds, clean, or menuconfig). Logs and artifacts are in `.gitignore`.
 
@@ -53,21 +55,29 @@ START
   ├─ [2] Language Detector (weighted scoring: LANG env +4, locale +3, timezone +2; in WSL +5 for Get-WinSystemLocale)
   │        └─ loads system/lang/{ru|en}.env  →  sets L_* / H_* variables
   │
-  ├─ [3] Docker check (docker --version, docker-compose / docker compose)
+  ├─ [3] Runtime parse: ROUTERFW_RUNTIME / --runtime / -r → auto, docker, or podman
   │
-  ├─ [4] Docker Credentials Fix (.docker_tmp/config.json, strips credsStore/credHelpers)
+  ├─ [4] resolve_runtime:
+  │        Docker: docker compose / docker-compose / docker.exe compose
+  │        Podman: podman compose / podman-compose / podman.exe compose
+  │        auto: if both engines are available, ask the interactive user
   │
-  ├─ [5] Auto-unpack (_unpacker.sh / _unpacker.bat, if present)
+  ├─ [5] Docker Credentials Fix only for Docker runtime
+  │        (.docker_tmp/config.json, strips credsStore/credHelpers)
   │
-  ├─ [6] Init dirs (profiles/, custom_files/, firmware_output/, custom_packages/,
+  ├─ [6] Selective unpack (_unpacker.sh / _unpacker.bat):
+  │        bootstrap only / ROUTERFW_REPAIR=1 / missing key files
+  │
+  ├─ [7] Init dirs (profiles/, custom_files/, firmware_output/, custom_packages/,
   │                  src_packages/, custom_patches/;
   │                  firmware_output/imagebuilder/ and firmware_output/sourcebuilder/,
   │                  plus per-profile subdirs imagebuilder/<profile>, sourcebuilder/<profile> — both platforms since 4.45)
   │
-  ├─ [7] Profile variable migration  PKGS→IMAGE_PKGS, EXTRA_IMAGE_NAME→IMAGE_EXTRA_NAME
+  ├─ [8] Profile variable migration  PKGS→IMAGE_PKGS, EXTRA_IMAGE_NAME→IMAGE_EXTRA_NAME
   │        (idempotent, runs on every startup)
   │
-  └─ [8] Architecture mapping  SRC_ARCH auto-fill from SRC_TARGET/SRC_SUBTARGET
+  └─ [9] Architecture mapping  SRC_ARCH auto-fill from SRC_TARGET/SRC_SUBTARGET
+          only for profiles where SRC_ARCH is missing
 ```
 
 **Localization (step [2]):** UI strings are in dictionaries `system/lang/ru.env` and `system/lang/en.env` (unified pseudo-format: `KEY={C_VAL}text{C_RST}`, no quotes; `#` = comment). Two separate loaders substitute color placeholders (`{C_VAL}`, `{C_RST}`, `{C_ERR}`, etc.) and set `L_*` / `H_*` variables:
@@ -83,7 +93,8 @@ Main Menu
   ├─ [number]     Build selected profile
   ├─ [M]          Switch build mode: IMAGE ↔ SOURCE
   ├─ [E]          Editor: open profile folder and profile in $EDITOR
-  ├─ [A]          Parallel build ALL profiles (Linux only, background jobs + spinner)
+  ├─ [A]          Parallel build ALL profiles in the current mode
+  │               (ROUTERFW_JOBS limit, logs in firmware_output/.build_logs/)
   ├─ [K]          Menuconfig (Source Builder only)
   ├─ [C]          Cleanup Wizard (cache, volumes, full reset)
   ├─ [W]          Create new profile wizard  →  system/create_profile.sh / .ps1  (exit: 0, same as main menu)
@@ -116,7 +127,8 @@ The main menu displays a "surgical" resource panel for instant profile assessmen
 ```
 system/apk_scanner.sh / system/apk_scanner.ps1  (v1.0, since v4.70)
   │
-  ├─ Launch: AUTO (before docker compose up in IB mode, when .apk files exist in custom_packages/)
+  ├─ Launch: AUTO (before running the selected compose runtime in IB mode,
+  │                when .apk files exist in custom_packages/)
   │           or MANUAL ([S] button in main menu → profile selection)
   │
   ├─ Parameters:  $1 = PROFILE_ID,  $2 = TARGET_ARCH,  env: APK_SCANNER_LANG=RU|EN
@@ -126,7 +138,7 @@ system/apk_scanner.sh / system/apk_scanner.ps1  (v1.0, since v4.70)
   │        └─ No files → exit 0 (silent)
   │
   ├─ [2] For each APK:
-  │        docker run --rm alpine:latest apk adbdump -- /input/<file>.apk
+  │        selected runtime run --rm alpine:latest apk adbdump -- /input/<file>.apk
   │        │
   │        ├─ Reads .PKGINFO from container (no unzip — the only reliable method)
   │        ├─ Parses: Package (name), Version, Arch
@@ -164,12 +176,12 @@ build_routine(profile.conf)  [IB mode]
   │           ├─ Y → continue
   │           └─ n → abort
   │
-  └─ docker compose up  →  standard IB process
+  └─ run_compose up  →  standard IB process through Docker or Podman
 ```
 
-**Why `alpine:latest` is not removed:** It's a service image for scanning. `docker run --rm` cleans up containers but the image stays for repeated runs. Takes ~7 MB.
+**Why `alpine:latest` is not removed:** It's a service image for scanning. `run --rm` cleans up containers but the image stays for repeated runs. Takes ~7 MB.
 
-**Dependencies:** Docker (for `apk adbdump`), access to `alpine:latest` (pulled on first run). Does not require `unzip`, `jq` or other utilities — everything runs inside the Alpine container.
+**Dependencies:** selected container runtime (Docker or Podman) for `apk adbdump`, access to `alpine:latest` (pulled on first run). Does not require `unzip`, `jq` or other utilities — everything runs inside the Alpine container.
 
 ---
 
@@ -187,7 +199,9 @@ _Builder.sh/bat  →  build_routine(profile.conf)
   │
   ├─ Export env vars: SELECTED_CONF, HOST_FILES_DIR, HOST_PKGS_DIR, HOST_OUTPUT_DIR
   │
-  ├─ docker compose -f system/docker-compose.yaml up --build
+  ├─ run_compose -f system/docker-compose.yaml up --build
+  │     (for Podman, system/podman-compose.yaml is added;
+  │      mount suffix: :z / :ro,z; .exe bridge uses --env-file)
   │     │
   │     │  Volume mounts:
   │     │    imagebuilder-cache:/cache
@@ -200,12 +214,12 @@ _Builder.sh/bat  →  build_routine(profile.conf)
   │     └─ runs: /bin/bash /ib_builder.sh
   │               │
   │               ├─ [1] Normalize profile (strip BOM, strip \r)
-  │               ├─ [2] Download / cache SDK (.tar.zst or .tar.xz)
+  │               ├─ [2] Clean workspace without deleting dl/ and download/cache SDK (.tar.zst or .tar.xz)
   │               │        Network URL → wget → /cache/
   │               │        Local path  → firmware_output/... → /cache/
   │               ├─ [3] Extract SDK (tar -I zstd or tar -xJf, --strip-components=1)
   │               ├─ [4] OpenSSL fix (copy openssl.cnf for legacy SSL)
-  │               ├─ [5] Copy custom .ipk → packages/
+  │               ├─ [5] Copy custom .ipk → packages/ and clean local package indexes carefully
   │               ├─ [6] Set ROOTFS_SIZE / KERNEL_SIZE in .config
   │               ├─ [7] Download signing keys (CUSTOM_KEYS)
   │               ├─ [8] Add custom repos (CUSTOM_REPOS → repositories.conf)
@@ -213,7 +227,7 @@ _Builder.sh/bat  →  build_routine(profile.conf)
   │               ├─[10] make image  (2 attempts, retry on failure)
   │               └─[11] Copy artifacts → firmware_output/imagebuilder/<profile>/<timestamp>/
   │
-  └─ Fix permissions (alpine chown to host user UID)
+  └─ Runtime-aware output permission fix to host user UID
 ```
 
 ---
@@ -230,7 +244,9 @@ _Builder.sh/bat  →  build_routine(profile.conf)
   ├─ Legacy check: branch contains 19.07 / 18.06  → builder-src-oldwrt (Ubuntu 18.04)
   │                 else                            → builder-src-openwrt (Ubuntu 24.04)
   │
-  ├─ docker compose -f system/docker-compose-src.yaml up --build
+  ├─ run_compose -f system/docker-compose-src.yaml up --build
+  │     (for Podman, system/podman-compose-src.yaml is added;
+  │      SourceBuilder uses keep-id uid/gid for the build user)
   │     │
   │     │  Volume mounts (persistent Docker volumes):
   │     │    src-workdir:/home/build/openwrt        ← OpenWrt source tree
@@ -263,9 +279,9 @@ _Builder.sh/bat  →  build_routine(profile.conf)
   │               ├─[13] make -j<SRC_CORES>  →  fallback make -j1 V=s on error
   │               └─[14] Copy artifacts → firmware_output/sourcebuilder/<profile>/<timestamp>/
   │
-  ├─ Fix permissions (alpine chown to host user UID, same as Image Builder)
+  ├─ Runtime-aware output permission fix to host UID, same as Image Builder
   ├─ Post-build: detect *imagebuilder*.tar.zst → offer to update IMAGEBUILDER_URL in profile
-  └─ Post-build: offer interactive shell (docker compose run --rm -it /bin/bash)
+  └─ Post-build: offer interactive shell (run_compose run --rm -it /bin/bash)
 ```
 
 ---
@@ -276,7 +292,7 @@ _Builder.sh/bat  →  build_routine(profile.conf)
 Menu [K]  →  run_menuconfig(profile.conf)
   │
   ├─ Generates firmware_output/sourcebuilder/<profile>/_menuconfig_runner.sh
-  ├─ docker compose run --rm -it builder-src-openwrt /bin/bash
+  ├─ run_compose run --rm -it builder-src-openwrt /bin/bash
   │     │
   │     └─ _menuconfig_runner.sh:
   │           ├─ git init / checkout (if workdir empty)
@@ -325,7 +341,7 @@ profiles/*.conf  (shared between Image Builder and Source Builder)
 
 ---
 
-## 10. Docker Images
+## 10. Container Images and Compose
 
 ```
 Image Builder:
@@ -335,6 +351,12 @@ Image Builder:
 Source Builder:
   system/src.dockerfile         → Ubuntu 24.04  (builder-src-openwrt)
   system/src.dockerfile.legacy  → Ubuntu 18.04  (builder-src-oldwrt)
+
+Compose:
+  system/docker-compose.yaml      → base Image Builder compose
+  system/docker-compose-src.yaml  → base Source Builder compose
+  system/podman-compose.yaml      → Podman override for Image Builder
+  system/podman-compose-src.yaml  → Podman override for Source Builder
 ```
 
 ---
@@ -355,12 +377,14 @@ nl_test/ nw_test/ ← test unpack dirs (distribution snapshots); not source of t
 ## 12. Packer / Distribution / Generated Artifacts
 
 ```
-_packer.sh / _packer.bat  (v2.2 MT)
+_packer.sh / _packer.bat  (v2.7MT)
   └─ Packs project into self-extracting single-file distribution
         _unpacker.sh  (Linux)   ← DO NOT READ (huge base64 payload)
         _unpacker.bat (Windows) ← DO NOT READ (huge base64 payload)
 
 ```
+
+Packer and unpacker are covered by CI on Linux and Windows: deterministic regeneration, key-file roundtrip, strict Base64/MD5 validation, and no false success when payload recovery fails. The Windows packer uses a PowerShell worker for safe parallel packaging without fragile CMD quoting.
 
 ---
 

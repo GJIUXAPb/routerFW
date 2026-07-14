@@ -15,23 +15,26 @@
 
 ## 1. Стартовая последовательность (RU)
 
-> **Платформа:** диаграмма отражает **Linux** (_Builder.sh). В Windows (_Builder.bat): нет trap и фикса Docker credentials; распаковка — _unpacker.bat; patch_arch один раз при старте; migrate выполняется при **каждой** отрисовке меню.
+> **Платформа:** диаграмма отражает общий поток _Builder.sh / _Builder.bat. В Bash есть trap для cleanup; Windows использует _unpacker.bat и PowerShell-помощники. Runtime-логика общая: `auto`, `docker`, `podman`.
 
 ```mermaid
 flowchart TD
-    START([_Builder.sh / _Builder.bat]) --> TRAP[trap SIGINT/SIGTERM\ncleanup_exit → release_locks ALL, rm .docker_tmp]
+    START([_Builder.sh / _Builder.bat]) --> TRAP[cleanup hooks\nBash trap / Windows cleanup\nrelease_locks ALL, rm .docker_tmp]
     TRAP --> COLORS[ANSI-цвета\nC_KEY, C_LBL, C_ERR, C_RST...]
     COLORS --> LANG_DET[Детектор языка\nLANG +4, locale +3, TZ +2\nWSL: +5 Get-WinSystemLocale → SYS_LANG]
     LANG_DET --> LOAD_LANG[load_lang\nsystem/lang/ru.env или en.env → L_*, H_*]
     LOAD_LANG --> LANG_OUT[Вывод результата детектора\nScore, verdict]
-    LANG_OUT --> DOCKER_CFG[Исправление Docker credentials\n.docker_tmp/config.json\nудаление credsStore/credHelpers]
-    DOCKER_CFG --> DOCKER_CHK{docker и compose\nустановлены?}
-    DOCKER_CHK --> |нет| EXIT_DOCKER[L_ERR_DOCKER\nread, exit 1]
-    DOCKER_CHK --> |да| UNPACK{_unpacker.sh\nесть?}
-    UNPACK --> |да| RUN_UNPACK[bash _unpacker.sh]
-    UNPACK --> |нет| INIT_DIRS
-    RUN_UNPACK --> INIT_DIRS[check_dir\nprofiles, custom_files, firmware_output\ncustom_packages, src_packages, custom_patches\n+ imagebuilder/, sourcebuilder/\n+ imagebuilder/<id>, sourcebuilder/<id> — обе платформы 4.45]
-    INIT_DIRS --> PATCH_ARCH[patch_architectures\nSRC_ARCH из SRC_TARGET/SUBTARGET]
+    LANG_OUT --> RUNTIME_PARSE[Разбор runtime\nROUTERFW_RUNTIME / --runtime / -r\nauto, docker, podman]
+    RUNTIME_PARSE --> RUNTIME_RESOLVE{resolve_runtime\nDocker или Podman compose?}
+    RUNTIME_RESOLVE --> |нет| EXIT_RUNTIME[RUNTIME error\nread, exit 1]
+    RUNTIME_RESOLVE --> |да| DOCKER_CFG{runtime = Docker?}
+    DOCKER_CFG --> |да| DOCKER_FIX[Исправление Docker credentials\n.docker_tmp/config.json\nудаление credsStore/credHelpers]
+    DOCKER_CFG --> |нет| UNPACK_NEED{Нужна распаковка?\nbootstrap / repair / missing core}
+    DOCKER_FIX --> UNPACK_NEED
+    UNPACK_NEED --> |да| RUN_UNPACK[_unpacker.sh / _unpacker.bat\nстрогая проверка MD5/Base64]
+    UNPACK_NEED --> |нет| INIT_DIRS
+    RUN_UNPACK --> INIT_DIRS[check_dir\nprofiles, custom_files, firmware_output\ncustom_packages, src_packages, custom_patches\n+ imagebuilder/, sourcebuilder/\n+ imagebuilder/<id>, sourcebuilder/<id>]
+    INIT_DIRS --> PATCH_ARCH[patch_architectures\nтолько если SRC_ARCH отсутствует]
     PATCH_ARCH --> MIGRATE[migrate_profile_vars\nPKGS→IMAGE_PKGS\nEXTRA_IMAGE_NAME→IMAGE_EXTRA_NAME]
     MIGRATE --> MENU_LOOP[while true: отрисовка меню]
 ```
@@ -56,10 +59,7 @@ flowchart TD
     E_ANALYZE --> E_EDIT["$EDITOR (nano)\nprofiles/<id>.conf"]
     E_EDIT --> MENU
 
-    CHOICE --> |A| A_CHECK{Режим\nBUILD_MODE?}
-    A_CHECK --> |SOURCE| A_WARN[Предупреждение: массовая\nсборка только в IMAGE]
-    A_WARN --> MENU
-    A_CHECK --> |IMAGE| A_RUN[Каталог логов: .build_logs/<ts>\nЗапуск build_routine по каждому\nв фоне, сбор PID]
+    CHOICE --> |A| A_RUN[Каталог логов: firmware_output/.build_logs/<ts>\nЗапуск build_routine по каждому профилю\nпараллельно; лимит ROUTERFW_JOBS]
     A_RUN --> A_WAIT[Спиннер, ожидание всех\nрезультат и время по профилю]
     A_WAIT --> MENU
 
@@ -118,6 +118,8 @@ flowchart TD
 - **Массовая сборка в нужном режиме:** `_Builder.bat ib build-all`, `_Builder.bat src build-all`.
 Для явного выбора режима в одной команде используйте префикс `ib`/`src`. Переключение режима (клавиша **M** в меню) — только в интерактивном режиме.
 
+**Runtime:** `--runtime=auto|docker|podman`, `-r auto|docker|podman` или `ROUTERFW_RUNTIME`. В `auto` интерактивный запуск спрашивает выбор, если доступны Docker и Podman. Bash в WSL умеет использовать `docker.exe` / `podman.exe`, если нативного CLI нет.
+
 | Команда | Краткий ключ | Аргументы | Действие |
 |--------|--------------|-----------|----------|
 | `build` | `b` | \<id\> — номер или имя профиля | Сборка одного профиля |
@@ -126,7 +128,7 @@ flowchart TD
 | `menuconfig` | `k` | \<id\> | Menuconfig (только SOURCE) |
 | `import` | `i` | \<id\> | Импорт IPK/APK (только SOURCE, поддержка APK с v4.50) |
 | `wizard` | `w` | — | Мастер создания профиля |
-| `clean` | `c` | [тип] [цель] | Очистка: тип 1–6 (SRC) или 1–3 (IMG), 9=prune; цель — номер или A |
+| `clean` | `c` | [тип] [цель] | Очистка: тип 1–6 (SRC) или 1–3 (IMG); global prune отключён; цель — номер или A |
 | `state` | `s` | — | Таблица профилей с флагами (F,P,S,M,H,X,OI,OS) |
 | `check` | — | `<id>` | Добавить/обновить checksum в profiles/ID.conf |
 | `check-all` | — | — | Добавить/обновить checksum:MD5 во все файлы из unpacker |
@@ -154,7 +156,7 @@ flowchart TD
     S_SCAN --> |нет| S_EXIT_OK[exit 0 — тихо]
     S_SCAN --> |да| S_FOR[Для каждого APK]
 
-    S_FOR --> S_DUMP[docker run --rm alpine:latest\napk adbdump -- /input/file.apk]
+    S_FOR --> S_DUMP[selected runtime run --rm alpine:latest\napk adbdump -- /input/file.apk]
     S_DUMP --> S_PARSE{.PKGINFO\nраспарсен?}
     S_PARSE --> |нет| S_ERR["Ошибка парсинга\nexit 1"]
     S_PARSE --> |да| S_EXTRACT[Извлечь: name, version, release, arch]
@@ -184,7 +186,7 @@ flowchart TD
     BR_IB([build_routine\nIB-режим])
     BR_IB --> BR_ARCH[Извлечь SRC_ARCH\nиз profiles/<id>.conf]
     BR_ARCH --> BR_APK{.apk файлы в\ncustom_packages/<profile>/ ?}
-    BR_APK --> |нет| BR_COMPOSE[docker compose up\nстандартный IB процесс]
+    BR_APK --> |нет| BR_COMPOSE[run_compose up\nстандартный IB процесс]
     BR_APK --> |да| BR_SCAN[Запуск apk_scanner\nAPK_SCANNER_LANG=$SYS_LANG  sh\n-Lang !SYS_LANG!  bat]
     BR_SCAN --> BR_SCAN_EXIT{exit code?}
     BR_SCAN_EXIT --> |0| BR_COMPOSE
@@ -228,13 +230,13 @@ flowchart TD
     OLD_IMG & NEW_IMG --> IB["ib_builder.sh\nтома: cache, ipk-cache\noverlay_files, input_packages"]
     IB --> IB_STEPS["Скачать/кэш SDK\nРаспаковка, OpenSSL fix\nкопирование .ipk, ROOTFS/KERNEL\nCUSTOM_KEYS, CUSTOM_REPOS\nmake image x2"]
     IB_STEPS --> IB_OUT["Копирование в\nfirmware_output/imagebuilder/<id>/<ts>"]
-    IB_OUT --> IB_CHOWN["alpine chown\nHOST_OUTPUT_DIR"]
+    IB_OUT --> IB_CHOWN["runtime-aware chown\nHOST_OUTPUT_DIR"]
     IB_CHOWN --> BR_END([return])
 
     OLD_SRC & NEW_SRC --> SB["src_builder.sh\nтома: workdir, dl-cache, ccache\npatches, overlay_files"]
     SB --> SB_STEPS["chown, git, feeds, patches\nhooks.sh/откат, .config, overlay\nmake download, затем сборка:\n-j1 V=s (если SRC_CORES=debug)\n-jN (параллельно, с откатом на debug при сбое)"]
     SB_STEPS --> SB_OUT["Копирование в\nfirmware_output/sourcebuilder/<id>/<ts>"]
-    SB_OUT --> SB_CHOWN["alpine chown\nHOST_OUTPUT_DIR"]
+    SB_OUT --> SB_CHOWN["runtime-aware chown\nHOST_OUTPUT_DIR"]
     SB_CHOWN --> SB_OK{"Сборка\nуспешна?"}
     SB_OK --> |нет| SB_FATAL["L_BUILD_FATAL"]
     SB_FATAL --> SB_SHELL_Q2
@@ -246,7 +248,7 @@ flowchart TD
     SB_WRITE --> SB_SHELL_Q2["Вопрос: Остаться в\nконтейнере? Y/n"]
     IB_TAR --> |нет| SB_SHELL_Q2
     SB_SHELL_Q2 --> SB_STAY{"Y?"}
-    SB_STAY --> |да| SB_RUN["docker compose run\n--rm -it /bin/bash"]
+    SB_STAY --> |да| SB_RUN["run_compose run\n--rm -it /bin/bash"]
     SB_STAY --> |нет| BR_END
     SB_RUN --> BR_END
 ```
@@ -259,13 +261,13 @@ flowchart TD
 flowchart TD
     CW([cleanup_wizard\nBUILD_MODE])
     CW --> CW_MODE{Режим\nBUILD_MODE?}
-    CW_MODE --> |SOURCE| SRC_MENU[1=make clean\n2=src-workdir\n3=src-dl-cache\n4=src-ccache\n5=rm tmp\n6=Полный сброс\n9=docker prune\n0=назад]
-    CW_MODE --> |IMAGE| IMG_MENU[1=imagebuilder-cache\n2=ipk-cache\n3=Полный сброс\n9=docker prune\n0=назад]
+    CW_MODE --> |SOURCE| SRC_MENU[1=make clean\n2=src-workdir\n3=src-dl-cache\n4=src-ccache\n5=rm tmp\n6=Полный сброс\n9=global prune disabled\n0=назад]
+    CW_MODE --> |IMAGE| IMG_MENU[1=imagebuilder-cache\n2=ipk-cache\n3=Полный сброс\n9=global prune disabled\n0=назад]
 
     SRC_MENU --> C_SEL[Выбор 1-6, 9 или 0]
     IMG_MENU --> C_SEL
     C_SEL --> |0| CW_BACK([возврат в MENU])
-    C_SEL --> |9| PRUNE[docker system prune -f\nPress Enter]
+    C_SEL --> |9| PRUNE[Global prune disabled\nбезопасный выход]
     PRUNE --> CW_BACK
     C_SEL --> |1-6 или 1-3| T_SEL[Цель: номер профиля\nили A = ВСЕ]
     T_SEL --> REL[release_locks\ntarget_id]
@@ -275,11 +277,11 @@ flowchart TD
     ALL_OK --> |нет или 2,3,4,6| EXEC
     T_SEL --> EXEC{Действие}
 
-    EXEC --> |SRC 1| SRC_SOFT[docker run\nmake clean]
+    EXEC --> |SRC 1| SRC_SOFT[run_compose run\nmake clean]
     EXEC --> |SRC 2| SRC_WORK[cleanup_logic\nsrc-workdir]
     EXEC --> |SRC 3| SRC_DL[cleanup_logic\nsrc-dl-cache]
     EXEC --> |SRC 4| SRC_CC[cleanup_logic\nsrc-ccache]
-    EXEC --> |SRC 5| SRC_TMP[docker run\nrm -rf tmp/]
+    EXEC --> |SRC 5| SRC_TMP[run_compose run\nrm -rf tmp/]
     EXEC --> |SRC 6| SRC_FULL[workdir+dl+ccache\nrm firmware_output/sourcebuilder/id]
     EXEC --> |IMG 1| IMG_SDK[cleanup_logic\nimagebuilder-cache]
     EXEC --> |IMG 2| IMG_IPK[cleanup_logic\nipk/apk-cache]
@@ -298,7 +300,7 @@ flowchart TD
 flowchart TD
     K_START([K → run_menuconfig\nпрофиль])
     K_START --> K_GEN[Генерация\n_menuconfig_runner.sh\nв firmware_output/sourcebuilder/id/]
-    K_GEN --> K_RUN[docker compose run\n--rm -it\nскрипт runner]
+    K_GEN --> K_RUN[run_compose run\n--rm -it\nскрипт runner]
     K_RUN --> K_RUNNER[git init/checkout при необходимости\nвнедрение src_packages\nподготовка .config\nmake menuconfig\nmake defconfig, diffconfig\n→ manual_config]
     K_RUNNER --> K_OUT[Выход из контейнера]
     K_OUT --> K_HAVE{manual_config\nсуществует?}
