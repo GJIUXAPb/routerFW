@@ -15,13 +15,13 @@ services:
       - src-workdir:/home/build/openwrt
       - src-dl-cache:/home/build/openwrt/dl
       - src-ccache:/ccache
-      - ../profiles:/profiles      
-      - ../${HOST_PKGS_DIR}:/input_packages
-      - ../${HOST_PATCHES_DIR}:/patches
-      - ../${HOST_FILES_DIR}:/overlay_files
-      - ../${HOST_OUTPUT_DIR}:/output
-      - ./openssl.cnf:/openssl.cnf
-      - ./src_builder.sh:/src_builder.sh
+      - ../profiles:/profiles${ROUTERFW_BIND_PROFILES_SUFFIX:-}
+      - ../${HOST_PKGS_DIR}:/input_packages${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../${HOST_PATCHES_DIR}:/patches${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../${HOST_FILES_DIR}:/overlay_files${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../${HOST_OUTPUT_DIR}:/output${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ./openssl.cnf:/openssl.cnf${ROUTERFW_BIND_RO_SUFFIX:-}
+      - ./src_builder.sh:/src_builder.sh${ROUTERFW_BIND_RO_SUFFIX:-}
     command: /bin/bash /src_builder.sh
 
   builder-src-oldwrt:
@@ -39,17 +39,17 @@ services:
       - src-workdir:/home/build/openwrt
       - src-dl-cache:/home/build/openwrt/dl
       - src-ccache:/ccache
-      - ../profiles:/profiles
-      - ../${HOST_PKGS_DIR}:/input_packages
-      - ../${HOST_PATCHES_DIR}:/patches
-      - ../${HOST_FILES_DIR}:/overlay_files
-      - ../${HOST_OUTPUT_DIR}:/output
-      - ./openssl.cnf:/openssl.cnf
-      - ./src_builder.sh:/src_builder.sh
+      - ../profiles:/profiles${ROUTERFW_BIND_PROFILES_SUFFIX:-}
+      - ../${HOST_PKGS_DIR}:/input_packages${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../${HOST_PATCHES_DIR}:/patches${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../${HOST_FILES_DIR}:/overlay_files${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ../${HOST_OUTPUT_DIR}:/output${ROUTERFW_BIND_RW_SUFFIX:-}
+      - ./openssl.cnf:/openssl.cnf${ROUTERFW_BIND_RO_SUFFIX:-}
+      - ./src_builder.sh:/src_builder.sh${ROUTERFW_BIND_RO_SUFFIX:-}
     command: /bin/bash /src_builder.sh
 
 volumes:
   src-dl-cache:
   src-workdir:
   src-ccache:
-# checksum:MD5=faaea133fefeaef20f5b465f4520b753
+# checksum:MD5=b5e4d17239954816f8f0fe56b27275dc

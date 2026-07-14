@@ -21,7 +21,7 @@ In version 3.0+, a **global refactoring** took place: the old `_Image_Builder.ba
 
 The entire project is contained in **one self-extracting file**, `_unpacker`. You don't need to download ZIP archives or clone the repository.
 
-*   **Preparation:** [Download and install Docker Desktop](https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe).
+*   **Preparation:** Install a supported container runtime: `Docker` or `Podman`. By default the builder uses `ROUTERFW_RUNTIME=auto`.
 
 ## 🌍 International Unpacker
 The project is deployed via a **unified international unpacker** `_unpacker`. All system messages during deployment have been translated into English to ensure clarity for global users.
@@ -35,6 +35,7 @@ The project is deployed via a **unified international unpacker** `_unpacker`. Al
 > 1. Place `_unpacker` in an **empty folder** (e.g., `C:\OpenWrtBuilder`) with no Cyrillic characters in the path.
 > 2. Run it — it will deploy the project structure.
 > 3. Run the resulting `_Builder`.
+> 4. If needed, pin the runtime with `--runtime=docker`, `--runtime=podman`, or the `ROUTERFW_RUNTIME` environment variable.
 
 ## 🖥 Interface
 
@@ -58,7 +59,7 @@ The main menu features a "surgical" resource panel **`[F P S M H X | OI OS]`** f
 
 ---
 
-### 🛡️ APK Scanner (v4.60+)
+### 🛡️ APK Scanner (v4.70+)
 Built-in scanner for automatic validation and renaming of `.apk` files before building in Image Builder mode.
 
 *   **Why:** Image Builder rejects packages if the filename doesn't match the internal version (the `luci-i18n-podkop-ru` bug). The scanner reads metadata via Docker (`apk adbdump`) and fixes filenames automatically.
@@ -76,6 +77,11 @@ You can run the builder with arguments **without entering the interactive menu**
 
 ### Interface language
 *   **`--lang=RU`** / **`--lang=EN`** or **`-l RU`** / **`-l EN`** — force interface language (any position on the command line). Without the key — auto-detection from the system.
+
+### Trusted profile and package model
+*   `profiles/*.conf` files are treated as **trusted input**: the builder consumes values from the profile and related shell-side resources. Do not run third-party `.conf`, `hooks.sh`, patches, or packages without reviewing them first.
+*   If you enable external repositories and signing keys via `CUSTOM_REPOS` / `CUSTOM_KEYS`, you are explicitly trusting those sources.
+*   For local third-party packages in Image Builder mode, signature checks inside the container may be relaxed, so unsigned packages should be used only when you intentionally trust their origin.
 
 ### Build mode (Image Builder / Source)
 *   **Prefix before command:** `ib` or `image` — Image Builder, `src` or `source` — Source Builder. Without a prefix, **Image Builder** is used by default.
@@ -416,4 +422,4 @@ Release visualization (CHANGELOG) — timeline, heatmap, activity river, pulse b
 ---
 
 Project audit https://github.com/iqubik/routerFW/blob/main/docs/audit.md
-# checksum:MD5=bb0bafc0b29f9188440051cb0b6354df
+# checksum:MD5=45223ab37fb6584f6ab97fd09af50350

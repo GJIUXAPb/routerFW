@@ -1,0 +1,8 @@
+# file: system/podman-compose.yaml
+services:
+  builder-openwrt:
+    user: "0:0"
+
+  builder-oldwrt:
+    user: "0:0"
+# checksum:MD5=a744fa1f9a757615a3b2c87b7dd34f7a

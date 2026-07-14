@@ -7,11 +7,11 @@
 
 # Карта развития проекта routerFW
 
-Составлено по CHANGELOG.md (теги релизов). Дата выгрузки CHANGELOG: 2026-02-20.
+Составлено по CHANGELOG.md (теги релизов) и текущему diff ветки 4.70. Дата обновления карты: 2026-07-14.
 
 ![Рост и развитие — деление по эпохам, почкование версий](https://raw.githubusercontent.com/iqubik/routerFW/output/architecture-growth-dark.svg)
 
-*Визуализация: четыре эпохи (I–IV), в каждой — ячейки релизов с ключевыми фичами и датами. Генерируется скриптом `system/architecture-tetris.ps1`.*
+*Визуализация: эпохи развития, в каждой — ячейки релизов с ключевыми фичами и датами. Генерируется скриптом `system/architecture-tetris.ps1`.*
 
 ---
 
@@ -23,6 +23,7 @@
 | **II** | 2.0 – 2.51  | 2025-12-27 – 29 | Source Builder, универсальные профили, хуки, Vermagic, распаковщик |
 | **III**| 3.2 – 3.9   | 2026-01-02 – 09 | Единый _Builder, мастера, IPK/APK-конвейер, RU/EN, изоляция system/ |
 | **IV** | 4.0 – 4.43  | 2026-01-11 – 02-18 | Linux (Bash), локализация, патчи, локальный IB, миграция переменных, единые словари |
+| **V**  | 4.50 – 4.70 | 2026-03 – 07-14 | APK Scanner, Docker/Podman runtime, CI/CD, быстрый mass build, жёсткий packer/unpacker |
 
 ---
 
@@ -68,6 +69,16 @@
 - **4.42:** migrate_profile_vars() в _Builder.sh; регистронезависимый ввод меню; Enter=Yes при выходе; Docker Credentials Fix (копирование config без credsStore); полная локализация _Builder.sh (L_*), 40+ ключей; create_profile.sh IMAGE_*, fantastic-packages/$ARCH; UTF-8 BOM в create_profile.ps1; .dockerignore (firmware_output и др.); .gitattributes; docker compose up в .sh; зеркала ImmortalWrt в hooks и мастерах; tr -d '\r' для профиля.
 - **4.43:** Единые словари ru.env/en.env с плейсхолдерами {C_*}; загрузчики в bat/sh; конвенция file-header.mdc; hooks.sh v1.7 — цепочка зеркал vermagic, ветка openwrt-24.10-6.6 только kmods; create_profile 4 источника IB для ImmortalWrt.
 
+### Эпоха V — Runtime portability и CI/CD (4.50 – 4.70)
+- **4.50+:** Поддержка APK-пакетов и APK Scanner для Image Builder; подготовка профилей под новые OpenWrt/ImmortalWrt ветки.
+- **4.70:** Версия берётся из `system/version.env`; меню показывает текущий режим и движок сборки: Docker или Podman.
+- **4.70:** `--runtime=auto|docker|podman`, `-r` и `ROUTERFW_RUNTIME`; WSL fallback на `docker.exe` / `podman.exe`; compose-wrapper для `docker compose`, `docker-compose`, `podman compose`, `podman-compose` и `.exe` bridge.
+- **4.70:** Podman overlay compose-файлы, SELinux bind suffix `:z/:ro,z`, keep-id для SourceBuilder и env-file bridge для Windows CLI из Bash.
+- **4.70:** Выборочная распаковка при старте вместо долгой проверки каждого запуска; `ROUTERFW_REPAIR=1` для принудительного ремонта.
+- **4.70:** Массовые сборки и тестеры распараллелены; Bash `build-all` по умолчанию использует `ROUTERFW_JOBS=6`, логи пишутся в `firmware_output/.build_logs/`.
+- **4.70:** `_packer.bat` и `_packer.sh` обновлены до `2.7MT`: строгая Base64/MD5-проверка, детерминированность, корректные ошибки, PowerShell worker в Windows.
+- **4.70:** Новый CI/CD: Linux/Windows тестеры, Docker smoke, Podman smoke, packer/unpacker roundtrip, запрет global prune, артефакты логов и Actions на Node 24.
+
 ---
 
 ## 3. Ключевые направления (темы)
@@ -82,8 +93,10 @@
 | **IPK и пакеты** | 3.8, 3.9, 4.20 | Оборачивание .ipk/.apk, sandbox по профилю, libopenssl |
 | **Единый лаунчер** | 3.2, 4.0 | _Builder.bat → _Builder.sh, меню M/E/A/C/K |
 | **Локализация** | 3.9, 4.42, 4.43 | RU/EN, L_* словари, ru.env/en.env, {C_*} |
-| **Docker и ОС** | 2.0–4.43 | тома, блокировки, WSL, Ubuntu 18/22/24, seccomp, credsStore |
+| **Runtime и ОС** | 2.0–4.70 | Docker/Podman, WSL `.exe` bridge, тома, SELinux bind suffix, Ubuntu 18/22/24, seccomp, credsStore |
 | **Структура репо** | 3.6, 4.09, 4.41, 4.42 | system/, docs/, .dockerignore, .gitattributes, миграция переменных |
+| **CI/CD и качество** | 4.70 | Linux/Windows/Docker/Podman checks, smoke-тесты, deterministic packer/unpacker |
+| **Дистрибутив** | 2.1–4.70 | `_packer` / `_unpacker`, strict checksum/Base64, `2.7MT`, персональная установка и repair |
 
 ---
 
@@ -122,19 +135,22 @@
 | 4.41 | 2026-02-18 | IMAGE_PKGS / IMAGE_EXTRA_NAME, миграция |
 | 4.42 | 2026-02-18 | Миграция в .sh, локализация .sh, docker up |
 | 4.43 | 2026-02-18 | ru.env/en.env, file-header, vermagic mirrors |
+| 4.70 | 2026-07-14 | Docker/Podman runtime, CI/CD, packer 2.7MT, профили и массовые сборки |
 
 ---
 
-## 5. Текущее состояние (на момент 4.43)
+## 5. Текущее состояние (на момент 4.70)
 
 - **Платформы:** Windows (.bat, PowerShell), Linux (.sh).
 - **Режимы:** Image Builder (быстрая сборка), Source Builder (полная компиляция).
+- **Runtime:** Docker или Podman; `auto`-режим, явные ключи `--runtime` / `-r`, WSL fallback на `.exe`.
 - **Языки:** Русский, английский (словари `system/lang/ru.env`, `en.env`).
 - **Профили:** Универсальные `.conf` (IMAGE_*, SRC_*, общие); миграция PKGS/EXTRA_IMAGE_NAME при старте.
 - **Кастомизация:** custom_files, custom_packages, src_packages, custom_patches, hooks.sh.
 - **Форки:** OpenWrt, ImmortalWrt (в т.ч. ветки mt798x 6.6), несколько зеркал IB и vermagic.
+- **Качество:** CI проверяет Linux/Windows, Docker/Podman smoke, packer/unpacker roundtrip и запрет опасного global prune.
 
-Карта может обновляться при появлении новых тегов и записей в CHANGELOG.
+Карта может обновляться при появлении новых тегов, релиз-нот и записей в CHANGELOG.
 
 ---
 
@@ -173,12 +189,14 @@
 *   **Новая нумерация:** Переход на систему версий, основанную на датах.
 
 ## 💎 Этап 5: Современные стандарты и Мощность (v4.50+)
-**Период:** Март 2026
+**Период:** Март 2026 — июль 2026
 *   **APK Support:** Полная поддержка нового пакетного менеджера APK для актуальных версий OpenWrt.
 *   **Extroot Evolution:** Автоматизация расширения памяти роутера доведена до идеала.
 *   **Диагностика:** Глубокий анализ прошивок (Kernel/Vermagic info) прямо в процессе сборки.
 *   **AI-Ready:** Интеграция правил для AI-ассистентов (Cursor/Gemini) для помощи разработчикам.
-*   **Оптимизация:** Рекордная скорость работы упаковщика и стабильность Docker-окружения.
+*   **Runtime Choice:** Docker и Podman стали равноправными движками сборки, включая WSL fallback на `.exe`.
+*   **CI/CD:** Linux, Windows, Docker smoke и Podman smoke проверяют не только тестеры, но и packer/unpacker.
+*   **Оптимизация:** Быстрее массовые сборки, меньше лишней проверки unpacker при старте, стабильнее контейнерное окружение.
 
 ---
 *Эта карта отражает эволюцию RouterFW от простого скрипта до мощного комбайна для создания профессиональных прошивок.*

@@ -1,0 +1,8 @@
+# file: system/podman-compose-src.yaml
+services:
+  builder-src-openwrt:
+    userns_mode: "keep-id:uid=1000,gid=1000"
+
+  builder-src-oldwrt:
+    userns_mode: "keep-id:uid=1000,gid=1000"
+# checksum:MD5=66a1c424be8b1d6b687216edff78aefa

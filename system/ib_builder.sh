@@ -22,10 +22,11 @@ echo -e "tries = 5\ntimeout = 20\nretry_connrefused = on\nwaitretry = 2" > ~/.wg
 # === 1. ПОДГОТОВКА КОНФИГУРАЦИИ ===
 log "Normalizing config..."
 cat "/profiles/$CONF_FILE" | sed '1s/^\xEF\xBB\xBF//' | tr -d '\r' > /tmp/clean_config.env
+unset PKGS IMAGE_PKGS EXTRA_IMAGE_NAME IMAGE_EXTRA_NAME CUSTOM_KEYS CUSTOM_REPOS DISABLED_SERVICES ROOTFS_SIZE KERNEL_SIZE SRC_PACKAGES
 source /tmp/clean_config.env
 
 # Обратная совместимость: поддержка старых имён переменных в профилях
-PKGS="${IMAGE_PKGS:-$PKGS}"
+PKGS="${IMAGE_PKGS:-${PKGS:-}}"
 EXTRA_IMAGE_NAME="${IMAGE_EXTRA_NAME:-$EXTRA_IMAGE_NAME}"
 
 [ -z "$IMAGEBUILDER_URL" ] && error "IMAGEBUILDER_URL is empty! Config parse failed."
@@ -58,15 +59,21 @@ else
     LOCAL_PATH_NORM=$(echo "$IMAGEBUILDER_URL" | tr '\\' '/')
     LOCAL_PATH="/output/${LOCAL_PATH_NORM#firmware_output/}"
     ARCHIVE_NAME=$(basename "$LOCAL_PATH")
-    CACHE_FILE="/cache/$ARCHIVE_NAME"
     [ -f "$LOCAL_PATH" ] || error "Local imagebuilder file not found: $LOCAL_PATH"
+    LOCAL_SHA256=$(sha256sum "$LOCAL_PATH" | awk '{print $1}')
+    [ -n "$LOCAL_SHA256" ] || error "Failed to calculate SHA-256 for local imagebuilder: $LOCAL_PATH"
+    CACHE_FILE="/cache/local-${LOCAL_SHA256}-${ARCHIVE_NAME}"
     if [ -f "$CACHE_FILE" ]; then
-        log "Using cached $ARCHIVE_NAME"
+        log "Using cached local imagebuilder: $ARCHIVE_NAME [$LOCAL_SHA256]"
     else
-        log "Using local imagebuilder: $LOCAL_PATH"
+        log "Caching local imagebuilder: $LOCAL_PATH [$LOCAL_SHA256]"
         cp "$LOCAL_PATH" "$CACHE_FILE"
     fi
 fi
+
+# Compose recreates containers, but failed/interrupted local runs can still leave
+# mutated ImageBuilder state. Always unpack into a clean workspace.
+find . -mindepth 1 -maxdepth 1 ! -name 'dl' -exec rm -rf {} +
 
 # Распаковка
 log "Extracting SDK..."
@@ -81,6 +88,96 @@ fi
 # Проверка, что распаковка прошла успешно (поддержка opkg и apk)
 [ -f "repositories.conf" ] || [ -f "repositories" ] || [ -f "Makefile" ] || error "Extraction failed: Build root not found!"
 
+# Local ImageBuilder archives carry x86-64 host tools from the environment that
+# created them. Fail early if this container cannot provide the required glibc.
+CURRENT_GLIBC=$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}' || true)
+REQUIRED_GLIBC=$(
+    find staging_dir/host/bin staging_dir/host/lib staging_dir/host/libexec \
+        -type f -print0 2>/dev/null |
+    xargs -0 -r grep -aohE 'GLIBC_[0-9]+(\.[0-9]+)+' 2>/dev/null |
+    sed 's/^GLIBC_//' |
+    sort -V |
+    tail -1
+)
+if [ -n "$CURRENT_GLIBC" ] && [ -n "$REQUIRED_GLIBC" ]; then
+    HIGHEST_GLIBC=$(printf '%s\n%s\n' "$CURRENT_GLIBC" "$REQUIRED_GLIBC" | sort -V | tail -1)
+    if [ "$HIGHEST_GLIBC" != "$CURRENT_GLIBC" ]; then
+        error "ImageBuilder host tools require GLIBC_$REQUIRED_GLIBC, but this container provides GLIBC_$CURRENT_GLIBC. Rebuild/update the modern Image Builder container on Ubuntu 24.04 or newer."
+    fi
+    log "GLIBC compatibility check passed: container=$CURRENT_GLIBC, required=$REQUIRED_GLIBC"
+fi
+
+config_value() {
+    local key="$1"
+    sed -n "s/^${key}=\"\\(.*\\)\"/\\1/p" .config 2>/dev/null | tail -1
+}
+
+version_repo_default() {
+    sed -n 's/^VERSION_REPO:=.*,\(https\?:\/\/[^)]*\)).*/\1/p' include/version.mk 2>/dev/null | tail -1
+}
+
+# Some locally generated OpenWrt 25.x ImageBuilder archives contain APK
+# packages and Makefile support, but omit the repositories file expected by
+# apk. Recreate the standard release repository list from embedded metadata.
+if [ ! -f "repositories" ] && [ -x "staging_dir/host/bin/apk" ] && ls packages/*.apk 1>/dev/null 2>&1; then
+    REPO_BASE="$(config_value CONFIG_VERSION_REPO)"
+    [ -n "$REPO_BASE" ] || REPO_BASE="$(version_repo_default)"
+    REPO_BOARD="$(config_value CONFIG_TARGET_BOARD)"
+    REPO_SUBTARGET="$(config_value CONFIG_TARGET_SUBTARGET)"
+    REPO_ARCH="$(config_value CONFIG_TARGET_ARCH_PACKAGES)"
+
+    if [ -n "$REPO_BASE" ] && [ -n "$REPO_BOARD" ] && [ -n "$REPO_SUBTARGET" ] && [ -n "$REPO_ARCH" ]; then
+        log "Generating missing APK repositories file from ImageBuilder metadata..."
+        {
+            echo "${REPO_BASE%/}/targets/$REPO_BOARD/$REPO_SUBTARGET/packages/packages.adb"
+            echo "${REPO_BASE%/}/packages/$REPO_ARCH/base/packages.adb"
+            sed -n 's/^CONFIG_FEED_\([^=]*\)=y$/\1/p; s/^CONFIG_FEED_\([^=]*\)=m$/# \1/p' .config |
+            while IFS= read -r feed; do
+                case "$feed" in
+                    \#\ *) echo "# ${REPO_BASE%/}/packages/$REPO_ARCH/${feed#\# }/packages.adb" ;;
+                    *) echo "${REPO_BASE%/}/packages/$REPO_ARCH/$feed/packages.adb" ;;
+                esac
+            done
+        } > repositories
+    else
+        warn "APK repositories file is missing and metadata is incomplete; package resolution may fail."
+    fi
+fi
+
+# Some custom ImageBuilder archives omit opkg arch declarations, which makes
+# bundled target packages (even libc) look incompatible.
+if [ -f "repositories.conf" ] && ! grep -q '^arch[[:space:]]' repositories.conf; then
+    IB_ARCH="${SRC_ARCH:-}"
+    if [ -z "$IB_ARCH" ] && [ -f "packages/Packages" ]; then
+        IB_ARCH=$(awk '/^Architecture: / && $2 != "all" { print $2; exit }' packages/Packages)
+    fi
+    if [ -n "$IB_ARCH" ]; then
+        tmp_repos=$(mktemp)
+        {
+            echo "arch all 1"
+            echo "arch noarch 1"
+            echo "arch $IB_ARCH 10"
+            cat repositories.conf
+        } > "$tmp_repos"
+        mv "$tmp_repos" repositories.conf
+    fi
+fi
+if [ -f "repositories.conf" ] && grep -q '^src[[:space:]]\+imagebuilder[[:space:]]\+file:packages' repositories.conf && [ ! -f "packages/Packages.sig" ]; then
+    sed -i '/^option[[:space:]]\+check_signature/d' repositories.conf
+fi
+
+# Some custom 24.10 ImageBuilder archives ship libgcc1 as the provider for the
+# virtual libgcc dependency, but their Makefile installs libc before libgcc1.
+if [ -f "Makefile" ] && ls packages/libgcc1_*.ipk 1>/dev/null 2>&1 && ! grep -q 'libgcc1_\\*.ipk' Makefile; then
+    awk '
+        /libc_[*][.]ipk/ && !done {
+            print "\t$(OPKG) install $(firstword $(wildcard $(LINUX_DIR)/libgcc1_*.ipk $(PACKAGE_DIR)/libgcc1_*.ipk))";
+            done=1
+        }
+        { print }
+    ' Makefile > Makefile.routerfw && mv Makefile.routerfw Makefile
+fi
+
 # --- 3. ПОДГОТОВКА ОКРУЖЕНИЯ ---
 if [ -f /openssl.cnf ]; then
     log "Applying OpenSSL Fix..."
@@ -92,11 +189,20 @@ if [ -d /input_packages ]; then
     log "Processing input packages..."
     # КРИТИЧНО: Гарантируем наличие папки перед копированием
     mkdir -p packages/
-    # Удаляем stale локальные пакеты от прошлых запусков
-    rm -f packages/*.apk packages/*.ipk 2>/dev/null || true
+    HAS_CUSTOM_IPK=0
 
     # Копируем IPK (старый формат)
-    cp /input_packages/*.ipk packages/ 2>/dev/null || true
+    if ls /input_packages/*.ipk 1>/dev/null 2>&1; then
+        cp /input_packages/*.ipk packages/
+        HAS_CUSTOM_IPK=1
+        rm -f packages/Packages packages/Packages.gz packages/Packages.manifest packages/Packages.sig 2>/dev/null || true
+    fi
+
+    # Local IPK feeds are unsigned. Keep signature checks for normal builds,
+    # but allow explicitly supplied local packages to be indexed and installed.
+    if [ "$HAS_CUSTOM_IPK" -eq 1 ] && [ -f "repositories.conf" ]; then
+        sed -i '/^option[[:space:]]\+check_signature/d' repositories.conf
+    fi
 
     # Обработка APK (новый формат)
     if ls /input_packages/*.apk 1>/dev/null 2>&1; then
@@ -191,11 +297,58 @@ if [ -n "$CUSTOM_REPOS" ]; then
             # Оптимизация: чистый Bash вместо grep/awk
             if [[ "$line" == src/* ]]; then
                 read -r _ _ url _ <<< "$line"
-                [ -n "$url" ] && echo "${url%/}" >> repositories
+                if [ -n "$url" ]; then
+                    url="${url%/}"
+                    [[ "$url" == */packages.adb ]] || url="$url/packages.adb"
+                    echo "$url" >> repositories
+                fi
             else
-                echo "${line%/}" >> repositories
+                url="${line%/}"
+                [[ "$url" == */packages.adb ]] || url="$url/packages.adb"
+                echo "$url" >> repositories
             fi
         done
+    fi
+fi
+
+if [ -f "repositories" ] && [ -x "staging_dir/host/bin/apk" ]; then
+    APK_ARCH="${REPO_ARCH:-$(config_value CONFIG_TARGET_ARCH_PACKAGES)}"
+    if [ -n "$APK_ARCH" ]; then
+        log "Checking APK package availability..."
+        if [ -d "packages" ] && ls packages/*.apk 1>/dev/null 2>&1; then
+            if [ ! -f "packages/packages.adb" ] || [ -n "$(find packages -maxdepth 1 -name '*.apk' -newer packages/packages.adb -print -quit 2>/dev/null)" ]; then
+                (cd packages && ../staging_dir/host/bin/apk mkndx --allow-untrusted --output packages.adb *.apk) >/dev/null 2>&1 || true
+            fi
+        fi
+
+        APK_CHECK_ROOT="/tmp/routerfw-apk-check"
+        APK_CHECK_CACHE="/tmp/routerfw-apk-cache"
+        rm -rf "$APK_CHECK_ROOT" "$APK_CHECK_CACHE"
+        mkdir -p "$APK_CHECK_ROOT/tmp" "$APK_CHECK_CACHE"
+        APK_CHECK_BIN="$(realpath staging_dir/host/bin/apk)"
+        APK_REPOSITORIES="$(realpath repositories)"
+        APK_LOCAL_REPO="$(realpath packages/packages.adb 2>/dev/null || true)"
+        APK_CHECK_ARGS=(--root "$APK_CHECK_ROOT" --repositories-file "$APK_REPOSITORIES" --allow-untrusted --cache-dir "$APK_CHECK_CACHE")
+        [ -n "$APK_LOCAL_REPO" ] && APK_CHECK_ARGS+=(--repository "$APK_LOCAL_REPO")
+
+        if "$APK_CHECK_BIN" "${APK_CHECK_ARGS[@]}" add --arch "$APK_ARCH" --initdb >/dev/null 2>&1; then
+            APK_SIM_PKGS=()
+            for pkg in $PKGS; do
+                case "$pkg" in
+                    ""|-*) continue ;;
+                esac
+                pkg_name="${pkg%%[<>=~]*}"
+                [ -n "$pkg_name" ] || continue
+                APK_SIM_PKGS+=("$pkg")
+            done
+            if [ "${#APK_SIM_PKGS[@]}" -gt 0 ] && ! APK_SIM_OUTPUT=$("$APK_CHECK_BIN" "${APK_CHECK_ARGS[@]}" add --arch "$APK_ARCH" --simulate --no-scripts "${APK_SIM_PKGS[@]}" 2>&1); then
+                MISSING_PKGS=$(printf '%s\n' "$APK_SIM_OUTPUT" | sed -n 's/^[[:space:]]*\([^[:space:]]\+\) (no such package):.*/\1/p' | xargs)
+                [ -n "$MISSING_PKGS" ] || MISSING_PKGS="$APK_SIM_OUTPUT"
+                error "Requested APK packages are not available for $APK_ARCH: $MISSING_PKGS. Add compatible CUSTOM_REPOS/CUSTOM_KEYS or remove these packages from IMAGE_PKGS."
+            fi
+        else
+            warn "APK availability preflight failed to initialize; continuing with make image."
+        fi
     fi
 fi
 
@@ -278,4 +431,4 @@ echo -e "\n============================================================"
 echo -e "=== Build completed in ${ELAPSED}s."
 echo -e "=== Artifacts: firmware_output/$REL_PATH/$TIMESTAMP"
 echo -e "============================================================\n"
-# checksum:MD5=13d9c0e22299b3f3ba2ff8980859c985
+# checksum:MD5=0a298f9c48abaf8c890ee20ad9ff28c5

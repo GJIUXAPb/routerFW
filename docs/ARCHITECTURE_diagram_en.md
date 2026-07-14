@@ -7,7 +7,7 @@
 
 # routerFW — Process Diagrams
 
-> Version: 4.60. English diagram set.
+> Version: 4.70. English diagram set.
 >
 > Text: [ARCHITECTURE_en.md](ARCHITECTURE_en.md) · RU diagrams: [ARCHITECTURE_diagram_ru.md](ARCHITECTURE_diagram_ru.md)
 
@@ -15,23 +15,26 @@
 
 ## 1. Startup sequence (EN)
 
-> **Platform:** This diagram reflects **Linux** (_Builder.sh). On Windows (_Builder.bat): no trap, no Docker credentials fix; unpack uses _unpacker.bat; patch_arch runs once at startup; migrate runs on **each** menu draw.
+> **Platform:** This diagram reflects the shared _Builder.sh / _Builder.bat flow. Bash has a cleanup trap; Windows uses _unpacker.bat and PowerShell helpers. Runtime logic is shared: `auto`, `docker`, `podman`.
 
 ```mermaid
 flowchart TD
-    START([_Builder.sh / _Builder.bat]) --> TRAP[trap SIGINT/SIGTERM\ncleanup_exit → release_locks ALL, rm .docker_tmp]
+    START([_Builder.sh / _Builder.bat]) --> TRAP[cleanup hooks\nBash trap / Windows cleanup\nrelease_locks ALL, rm .docker_tmp]
     TRAP --> COLORS[ANSI colors\nC_KEY, C_LBL, C_ERR, C_RST...]
     COLORS --> LANG_DET[Language detector\nLANG +4, locale +3, TZ +2\nWSL: +5 Get-WinSystemLocale → SYS_LANG]
     LANG_DET --> LOAD_LANG[load_lang\nsystem/lang/ru.env or en.env → L_*, H_*]
     LOAD_LANG --> LANG_OUT[Print detector result\nScore, verdict]
-    LANG_OUT --> DOCKER_CFG[Docker credentials fix\n.docker_tmp/config.json\nstrip credsStore/credHelpers]
-    DOCKER_CFG --> DOCKER_CHK{docker & compose\npresent?}
-    DOCKER_CHK --> |no| EXIT_DOCKER[L_ERR_DOCKER\nread, exit 1]
-    DOCKER_CHK --> |yes| UNPACK{_unpacker.sh\npresent?}
-    UNPACK --> |yes| RUN_UNPACK[bash _unpacker.sh]
-    UNPACK --> |no| INIT_DIRS
-    RUN_UNPACK --> INIT_DIRS[check_dir\nprofiles, custom_files, firmware_output\ncustom_packages, src_packages, custom_patches\n+ imagebuilder/, sourcebuilder/\n+ imagebuilder/<id>, sourcebuilder/<id> — both platforms 4.45]
-    INIT_DIRS --> PATCH_ARCH[patch_architectures\nSRC_ARCH from SRC_TARGET/SUBTARGET]
+    LANG_OUT --> RUNTIME_PARSE[Runtime parse\nROUTERFW_RUNTIME / --runtime / -r\nauto, docker, podman]
+    RUNTIME_PARSE --> RUNTIME_RESOLVE{resolve_runtime\nDocker or Podman compose?}
+    RUNTIME_RESOLVE --> |no| EXIT_RUNTIME[RUNTIME error\nread, exit 1]
+    RUNTIME_RESOLVE --> |yes| DOCKER_CFG{runtime = Docker?}
+    DOCKER_CFG --> |yes| DOCKER_FIX[Docker credentials fix\n.docker_tmp/config.json\nstrip credsStore/credHelpers]
+    DOCKER_CFG --> |no| UNPACK_NEED{Unpack needed?\nbootstrap / repair / missing core}
+    DOCKER_FIX --> UNPACK_NEED
+    UNPACK_NEED --> |yes| RUN_UNPACK[_unpacker.sh / _unpacker.bat\nstrict MD5/Base64 check]
+    UNPACK_NEED --> |no| INIT_DIRS
+    RUN_UNPACK --> INIT_DIRS[check_dir\nprofiles, custom_files, firmware_output\ncustom_packages, src_packages, custom_patches\n+ imagebuilder/, sourcebuilder/\n+ imagebuilder/<id>, sourcebuilder/<id>]
+    INIT_DIRS --> PATCH_ARCH[patch_architectures\nonly when SRC_ARCH is missing]
     PATCH_ARCH --> MIGRATE[migrate_profile_vars\nPKGS→IMAGE_PKGS\nEXTRA_IMAGE_NAME→IMAGE_EXTRA_NAME]
     MIGRATE --> MENU_LOOP[while true: draw menu]
 ```
@@ -56,10 +59,7 @@ flowchart TD
     E_ANALYZE --> E_EDIT["$EDITOR (nano)\nprofiles/<id>.conf"]
     E_EDIT --> MENU
 
-    CHOICE --> |A| A_CHECK{BUILD_MODE?}
-    A_CHECK --> |SOURCE| A_WARN[Warn: mass build\nonly in IMAGE mode]
-    A_WARN --> MENU
-    A_CHECK --> |IMAGE| A_RUN[Log dir: .build_logs/<ts>\nSpawn build_routine for each profile\nbackground, collect PIDs]
+    CHOICE --> |A| A_RUN[Log dir: firmware_output/.build_logs/<ts>\nRun build_routine for each profile\nin parallel; ROUTERFW_JOBS limit]
     A_RUN --> A_WAIT[Spinner, wait all\nper-profile result + time]
     A_WAIT --> MENU
 
@@ -116,6 +116,8 @@ Running with arguments runs the chosen action without entering the interactive m
 - **Build all in chosen mode:** `_Builder.bat ib build-all`, `_Builder.bat src build-all`.
 To choose mode in one command, use the `ib`/`src` prefix. Mode toggle (key **M** in the menu) is available only in the interactive menu.
 
+**Runtime:** `--runtime=auto|docker|podman`, `-r auto|docker|podman`, or `ROUTERFW_RUNTIME`. In `auto`, an interactive launch asks when both Docker and Podman are available. Bash in WSL can use `docker.exe` / `podman.exe` if no native CLI exists.
+
 **Interface language:** `--lang=RU` / `--lang=EN` or `-l RU` / `-l EN` (any position). No key = auto-detect.
 
 | Command | Short | Arguments | Action |
@@ -126,7 +128,7 @@ To choose mode in one command, use the `ib`/`src` prefix. Mode toggle (key **M**
 | `menuconfig` | `k` | \<id\> | Menuconfig (SOURCE only) |
 | `import` | `i` | \<id\> | Import IPK/APK (SOURCE only, APK support since v4.50) |
 | `wizard` | `w` | — | Profile creation wizard |
-| `clean` | `c` | [type] [target] | Clean: type 1–6 (SRC) or 1–3 (IMG), 9=prune; target = number or A |
+| `clean` | `c` | [type] [target] | Clean: type 1–6 (SRC) or 1–3 (IMG); global prune is disabled; target = number or A |
 | `state` | `s` | — | Profile table with flags (F,P,S,M,H,X,OI,OS) |
 | `check` | — | `<id>` | Add/update checksum in profiles/ID.conf |
 | `check-all` | — | — | Add/update checksum:MD5 in all unpacker files |
@@ -152,7 +154,7 @@ flowchart TD
     S_SCAN --> |no| S_EXIT_OK[exit 0 — silent]
     S_SCAN --> |yes| S_FOR[For each APK]
 
-    S_FOR --> S_DUMP[docker run --rm alpine:latest\napk adbdump -- /input/file.apk]
+    S_FOR --> S_DUMP[selected runtime run --rm alpine:latest\napk adbdump -- /input/file.apk]
     S_DUMP --> S_PARSE{.PKGINFO\nparsed?}
     S_PARSE --> |no| S_ERR["Parse failed\nexit 1"]
     S_PARSE --> |yes| S_EXTRACT[Extract: name, version, release, arch]
@@ -182,7 +184,7 @@ flowchart TD
     BR_IB([build_routine\nIB mode])
     BR_IB --> BR_ARCH[Extract SRC_ARCH\nfrom profiles/<id>.conf]
     BR_ARCH --> BR_APK{.apk files in\ncustom_packages/<profile>/ ?}
-    BR_APK --> |no| BR_COMPOSE[docker compose up\nstandard IB process]
+    BR_APK --> |no| BR_COMPOSE[run_compose up\nstandard IB process]
     BR_APK --> |yes| BR_SCAN[Run apk_scanner\nAPK_SCANNER_LANG=$SYS_LANG  sh\n-Lang !SYS_LANG!  bat]
     BR_SCAN --> BR_SCAN_EXIT{exit code?}
     BR_SCAN_EXIT --> |0| BR_COMPOSE
@@ -226,13 +228,13 @@ flowchart TD
     OLD_IMG & NEW_IMG --> IB["ib_builder.sh\nvolumes: cache, ipk-cache\noverlay_files, input_packages"]
     IB --> IB_STEPS["Download/cache SDK\nExtract, OpenSSL fix\ncopy .ipk, ROOTFS/KERNEL\nCUSTOM_KEYS, CUSTOM_REPOS\nmake image x2"]
     IB_STEPS --> IB_OUT["Copy to\nfirmware_output/imagebuilder/<id>/<ts>"]
-    IB_OUT --> IB_CHOWN["alpine chown\nHOST_OUTPUT_DIR"]
+    IB_OUT --> IB_CHOWN["runtime-aware chown\nHOST_OUTPUT_DIR"]
     IB_CHOWN --> BR_END([return])
 
     OLD_SRC & NEW_SRC --> SB["src_builder.sh\nvolumes: workdir, dl-cache, ccache\npatches, overlay_files"]
     SB --> SB_STEPS["chown, git, feeds, patches\nhooks.sh/rollback, .config, overlay\nmake download, then build:\n-j1 V=s (if SRC_CORES=debug)\n-jN (parallel, w/ debug retry on fail)"]
     SB_STEPS --> SB_OUT["Copy to\nfirmware_output/sourcebuilder/<id>/<ts>"]
-    SB_OUT --> SB_CHOWN["alpine chown\nHOST_OUTPUT_DIR"]
+    SB_OUT --> SB_CHOWN["runtime-aware chown\nHOST_OUTPUT_DIR"]
     SB_CHOWN --> SB_OK{"Build\nsuccess?"}
     SB_OK --> |no| SB_FATAL["L_BUILD_FATAL"]
     SB_FATAL --> SB_SHELL_Q2
@@ -244,7 +246,7 @@ flowchart TD
     SB_WRITE --> SB_SHELL_Q2["Prompt: Stay in\ncontainer? Y/n"]
     IB_TAR --> |no| SB_SHELL_Q2
     SB_SHELL_Q2 --> SB_STAY{"Y?"}
-    SB_STAY --> |yes| SB_RUN["docker compose run\n--rm -it /bin/bash"]
+    SB_STAY --> |yes| SB_RUN["run_compose run\n--rm -it /bin/bash"]
     SB_STAY --> |no| BR_END
     SB_RUN --> BR_END
 ```
@@ -257,13 +259,13 @@ flowchart TD
 flowchart TD
     CW([cleanup_wizard\nBUILD_MODE])
     CW --> CW_MODE{BUILD_MODE?}
-    CW_MODE --> |SOURCE| SRC_MENU[1=make clean\n2=src-workdir\n3=src-dl-cache\n4=src-ccache\n5=rm tmp\n6=Full reset\n9=docker prune\n0=back]
-    CW_MODE --> |IMAGE| IMG_MENU[1=imagebuilder-cache\n2=ipk-cache\n3=Full reset\n9=docker prune\n0=back]
+    CW_MODE --> |SOURCE| SRC_MENU[1=make clean\n2=src-workdir\n3=src-dl-cache\n4=src-ccache\n5=rm tmp\n6=Full reset\n9=global prune disabled\n0=back]
+    CW_MODE --> |IMAGE| IMG_MENU[1=imagebuilder-cache\n2=ipk-cache\n3=Full reset\n9=global prune disabled\n0=back]
 
     SRC_MENU --> C_SEL[Choice 1-6, 9 or 0]
     IMG_MENU --> C_SEL
     C_SEL --> |0| CW_BACK([return to MENU])
-    C_SEL --> |9| PRUNE[docker system prune -f\nPress Enter]
+    C_SEL --> |9| PRUNE[Global prune disabled\nsafe return]
     PRUNE --> CW_BACK
     C_SEL --> |1-6 or 1-3| T_SEL[Target: profile number\nor A = ALL]
     T_SEL --> REL[release_locks\ntarget_id]
@@ -273,11 +275,11 @@ flowchart TD
     ALL_OK --> |no or 2,3,4,6| EXEC
     T_SEL --> EXEC{Action}
 
-    EXEC --> |SRC 1| SRC_SOFT[docker run\nmake clean]
+    EXEC --> |SRC 1| SRC_SOFT[run_compose run\nmake clean]
     EXEC --> |SRC 2| SRC_WORK[cleanup_logic\nsrc-workdir]
     EXEC --> |SRC 3| SRC_DL[cleanup_logic\nsrc-dl-cache]
     EXEC --> |SRC 4| SRC_CC[cleanup_logic\nsrc-ccache]
-    EXEC --> |SRC 5| SRC_TMP[docker run\nrm -rf tmp/]
+    EXEC --> |SRC 5| SRC_TMP[run_compose run\nrm -rf tmp/]
     EXEC --> |SRC 6| SRC_FULL[workdir+dl+ccache\nrm firmware_output/sourcebuilder/id]
     EXEC --> |IMG 1| IMG_SDK[cleanup_logic\nimagebuilder-cache]
     EXEC --> |IMG 2| IMG_IPK[cleanup_logic\nipk/apk-cache]
@@ -296,7 +298,7 @@ flowchart TD
 flowchart TD
     K_START([K → run_menuconfig\nprofile])
     K_START --> K_GEN[Generate\n_menuconfig_runner.sh\nin firmware_output/sourcebuilder/id/]
-    K_GEN --> K_RUN[docker compose run\n--rm -it\nrunner script]
+    K_GEN --> K_RUN[run_compose run\n--rm -it\nrunner script]
     K_RUN --> K_RUNNER[git init/checkout if needed\ninject src_packages\nprepare .config\nmake menuconfig\nmake defconfig, diffconfig\n→ manual_config]
     K_RUNNER --> K_OUT[Exit container]
     K_OUT --> K_HAVE{manual_config\nexists?}

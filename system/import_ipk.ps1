@@ -9,6 +9,7 @@ param (
 )
 
 $ScriptVersion = "3.0"
+$ContainerRuntime = if ($env:ROUTERFW_CONTAINER_RUNTIME) { $env:ROUTERFW_CONTAINER_RUNTIME } else { "docker" }
 
 # --- ИНИЦИАЛИЗАЦИЯ ПУТЕЙ ---
 if ($ProfileID -ne "") {
@@ -74,9 +75,8 @@ foreach ($ipk in $ipkFiles) {
         $apkFileName = $ipk.Name
         
         try {
-            # Выполняем docker-команду и ловим ее вывод
-            $dockerCommand = "docker run --rm -v ""$apkParentDir`:/data"" alpine:latest apk adbdump /data/$apkFileName"
-            $adbdumpOutput = Invoke-Expression $dockerCommand
+            $mountArg = if ($ContainerRuntime -eq "podman") { "${apkParentDir}:/data:ro,z" } else { "${apkParentDir}:/data:ro" }
+            $adbdumpOutput = & $ContainerRuntime run --rm -v $mountArg alpine:latest apk adbdump "/data/$apkFileName"
             $adbdumpOutputString = $adbdumpOutput -join "`n"
 
             # Если команда не вернула вывод, считаем это ошибкой
@@ -404,4 +404,4 @@ Write-Host "==========================================================" -Foregro
 Write-Host "  DONE: $importedCount packages imported." -ForegroundColor Cyan
 if ($ProfileID) { Write-Host "  Location: $outDir" -ForegroundColor Gray }
 Write-Host "==========================================================`n"
-# checksum:MD5=d544d636c7abd6c2ad69f7c08d77116a
+# checksum:MD5=7a8a1e971f69b3d849d858f8785c83dd

@@ -17,7 +17,8 @@ C_WHT='\033[1;37m'
 C_RST='\033[0m'
 
 # --- ПРОВЕРКА ЗАВИСИМОСТЕЙ ---
-for cmd in curl jq tar ar docker date; do
+CONTAINER_RUNTIME_BIN="${ROUTERFW_CONTAINER_RUNTIME:-docker}"
+for cmd in curl jq tar ar date "$CONTAINER_RUNTIME_BIN"; do
     if ! command -v $cmd &> /dev/null; then
         echo -e "${C_RED}Ошибка: утилита '$cmd' не найдена. Установите её (sudo apt install binutils)${C_RST}"
     fi
@@ -99,7 +100,11 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
         APK_ABS_DIR=$(cd "$(dirname "$IPK_PATH")" && pwd)
         APK_FILE=$(basename "$IPK_PATH")
         
-        ADBDUMP_OUT=$(docker run --rm -v "$APK_ABS_DIR:/data" alpine:latest apk adbdump "/data/$APK_FILE" 2>/dev/null)
+        MOUNT_ARG="$APK_ABS_DIR:/data:ro"
+        if [ "$CONTAINER_RUNTIME_BIN" = "podman" ]; then
+            MOUNT_ARG="$APK_ABS_DIR:/data:ro,z"
+        fi
+        ADBDUMP_OUT=$("$CONTAINER_RUNTIME_BIN" run --rm -v "$MOUNT_ARG" alpine:latest apk adbdump "/data/$APK_FILE" 2>/dev/null)
         
         if [ -n "$ADBDUMP_OUT" ]; then
             PKG_NAME=$(echo "$ADBDUMP_OUT" | grep -m 1 "^  name: " | sed 's/.*name: //' | tr -d '\r')
@@ -337,4 +342,4 @@ echo -e "${C_CYAN}==========================================================${C_
 # Авто-определение языка для паузы
 [[ "$LANG" == *"ru"* ]] && echo -ne "\n Нажмите Enter..." || echo -ne "\n Press Enter..."
 read -r
-# checksum:MD5=e0422ac45f185e6d0584d628b49fb05f
+# checksum:MD5=8acb0889f7c68b6b9e44396d6011f177

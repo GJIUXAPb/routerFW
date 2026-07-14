@@ -5,6 +5,11 @@
 
 # Config directories
 /custom_files/
+!/custom_files/
+/custom_files/*
+!/custom_files/rax3000m_emmc_test_new/
+/custom_files/rax3000m_emmc_test_new/*
+!/custom_files/rax3000m_emmc_test_new/hooks.sh
 /custom_packages/
 /custom_patches/
 /src_packages/
@@ -12,6 +17,11 @@
 /bck/
 /reverse/
 debug.md
+
+# Generated packer artifacts
+/temp_packer_worker_*/
+/temp_packer_sh/
+/_unpacker.bat.new
 
 # Tester (local runs, log overwritten each run)
 tester_log_*.md

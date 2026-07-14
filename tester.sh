@@ -35,11 +35,35 @@ SH="_Builder.sh"
 PASS=0
 FAIL=0
 export ROUTERFW_NO_CLS=1
+export ROUTERFW_TEST_MODE=1
 
 LOG="$SCRIPT_DIR/tester_log_lin.md"
-TEMP_OUT="$SCRIPT_DIR/tester_tmp_lin_out.txt"
+TASK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/routerfw-tester-sh.XXXXXX")"
+TESTER_JOBS="${ROUTERFW_TEST_JOBS:-}"
+if [ -z "$TESTER_JOBS" ]; then
+  TESTER_JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+fi
+case "$TESTER_JOBS" in
+  ''|*[!0-9]*) TESTER_JOBS=4 ;;
+esac
+[ "$TESTER_JOBS" -lt 1 ] && TESTER_JOBS=1
+[ "$TESTER_JOBS" -gt 8 ] && TESTER_JOBS=8
 echo "# tester.sh run $(date '+%Y-%m-%d %H:%M:%S')" > "$LOG"
 echo "" >> "$LOG"
+echo "Parallel jobs: $TESTER_JOBS" >> "$LOG"
+
+TASK_PIDS=()
+TASK_LABELS=()
+TASK_KINDS=()
+TASK_EXPECTS=()
+TASK_OUTS=()
+TASK_RCS=()
+TASK_SEQ=0
+
+cleanup_tester() {
+  rm -rf "$TASK_DIR"
+}
+trap cleanup_tester EXIT
 
 # 1. Сохраняем аргументы скрипта в глобальный массив, сохраняя пробелы
 FILTERS=("$@")
@@ -81,62 +105,101 @@ run() {
   local expect="$1"
   local label="$2"
   shift 2
-  
-  # Проверка фильтрации
-  if ! should_run "$label"; then
-    return 0
-  fi
-
-  TEE_LINE="" tee_line
-  TEE_LINE="--- Test: $label ---" tee_line
-  
-  set +e
-  "$SCRIPT_DIR/$SH" "$@" > "$TEMP_OUT" 2>&1
-  local got=$?
-  set -e
-  
-  cat "$TEMP_OUT"
-  cat "$TEMP_OUT" >> "$LOG"
-  
-  TEE_LINE="" tee_line
-  if [ "$expect" = "$got" ]; then
-    TEE_LINE="[OK] $label" tee_line
-    ((PASS++)) || true
-  else
-    TEE_LINE="[FAIL] $label (expected exit $expect, got $got)" tee_line
-    ((FAIL++)) || true
-  fi
+  enqueue_task "$expect" "$label" "Test" bash "$SCRIPT_DIR/$SH" "$@"
 }
 
 run_check() {
   local expect="$1"
   local label="$2"
   local cmd="$3"
+  local mutates_unpacker=0
+  [[ "$label" == Packer* ]] && mutates_unpacker=1
 
-  # Проверка фильтрации
+  if [ "$mutates_unpacker" -eq 1 ]; then
+    wait_all
+    enqueue_task "$expect" "$label" "Check" bash -c "$cmd"
+    wait_all
+  else
+    enqueue_task "$expect" "$label" "Check" bash -c "$cmd"
+  fi
+}
+
+run_env() {
+  local expect="$1"
+  local label="$2"
+  shift 2
+  enqueue_task "$expect" "$label" "Test" env "$@"
+}
+
+enqueue_task() {
+  local expect="$1"
+  local label="$2"
+  local kind="$3"
+  shift 3
+
   if ! should_run "$label"; then
     return 0
   fi
 
-  TEE_LINE="" tee_line
-  TEE_LINE="--- Check: $label ---" tee_line
-  
-  set +e
-  bash -c "$cmd" > "$TEMP_OUT" 2>&1
-  local got=$?
-  set -e
-  
-  cat "$TEMP_OUT"
-  cat "$TEMP_OUT" >> "$LOG"
-  
-  TEE_LINE="" tee_line
-  if [ "$expect" = "$got" ]; then
-    TEE_LINE="[OK] $label" tee_line
-    ((PASS++)) || true
-  else
-    TEE_LINE="[FAIL] $label (expected exit $expect, got $got)" tee_line
-    ((FAIL++)) || true
+  if [ "${#TASK_PIDS[@]}" -ge "$TESTER_JOBS" ]; then
+    wait_all
   fi
+
+  local out="$TASK_DIR/$TASK_SEQ.out"
+  local rc_file="$TASK_DIR/$TASK_SEQ.rc"
+  (
+    set +e
+    "$@" > "$out" 2>&1
+    printf '%s\n' "$?" > "$rc_file"
+  ) &
+
+  TASK_PIDS+=("$!")
+  TASK_LABELS+=("$label")
+  TASK_KINDS+=("$kind")
+  TASK_EXPECTS+=("$expect")
+  TASK_OUTS+=("$out")
+  TASK_RCS+=("$rc_file")
+  ((TASK_SEQ++)) || true
+}
+
+wait_all() {
+  local i pid label kind expect out rc_file got
+  [ "${#TASK_PIDS[@]}" -eq 0 ] && return 0
+
+  for pid in "${TASK_PIDS[@]}"; do
+    wait "$pid" || true
+  done
+
+  for i in "${!TASK_PIDS[@]}"; do
+    label="${TASK_LABELS[$i]}"
+    kind="${TASK_KINDS[$i]}"
+    expect="${TASK_EXPECTS[$i]}"
+    out="${TASK_OUTS[$i]}"
+    rc_file="${TASK_RCS[$i]}"
+    got=255
+    [ -f "$rc_file" ] && got="$(cat "$rc_file")"
+
+    TEE_LINE="" tee_line
+    TEE_LINE="--- $kind: $label ---" tee_line
+    [ -f "$out" ] && cat "$out"
+    [ -f "$out" ] && cat "$out" >> "$LOG"
+
+    TEE_LINE="" tee_line
+    if [ "$expect" = "$got" ]; then
+      TEE_LINE="[OK] $label" tee_line
+      ((PASS++)) || true
+    else
+      TEE_LINE="[FAIL] $label (expected exit $expect, got $got)" tee_line
+      ((FAIL++)) || true
+    fi
+  done
+
+  TASK_PIDS=()
+  TASK_LABELS=()
+  TASK_KINDS=()
+  TASK_EXPECTS=()
+  TASK_OUTS=()
+  TASK_RCS=()
 }
 
 TEE_LINE="" tee_line
@@ -157,6 +220,9 @@ run 0 "--lang=EN help" --lang=EN help
 run 0 "--lang=RU help" --lang=RU help
 run 0 "-l EN help" -l EN help
 run 0 "-l RU help" -l RU help
+run 0 "--runtime=auto help" --runtime=auto help
+run 0 "--runtime=docker help" --runtime=docker help
+run 0 "--runtime=podman help" --runtime=podman help
 
 # --- Ожидание: exit 1 (ошибки) ---
 run 1 "build (no id)" build
@@ -170,11 +236,22 @@ run 1 "--state -> profile not found" --state
 run 1 "--lang=XX help" --lang=XX help
 run 1 "--lang help" --lang help
 run 1 "-l help" -l help
+run 1 "--runtime=bad help" --runtime=bad help
+run 1 "--runtime help" --runtime help
+run 1 "-r help" -r help
 run 1 "positional 999999" 999999
+run 1 "build path traversal" build ../evil
+run 1 "src menuconfig no id" src menuconfig
+run 1 "ib menuconfig 1" ib menuconfig 1
 
 # --- Регистр ---
 run 0 "HELP" HELP
 run 1 "BUILD no id" BUILD
+run_env 0 "build forced 0" ROUTERFW_TEST_BUILD_STATUS=0 bash "$SCRIPT_DIR/$SH" build 1
+run_env 1 "build forced 1" ROUTERFW_TEST_BUILD_STATUS=1 bash "$SCRIPT_DIR/$SH" build 1
+run_env 42 "build forced 42" ROUTERFW_TEST_BUILD_STATUS=42 bash "$SCRIPT_DIR/$SH" build 1
+run_env 0 "build-all forced 0" ROUTERFW_TEST_BUILD_STATUS=0 bash "$SCRIPT_DIR/$SH" build-all
+run_env 1 "build-all forced 1" ROUTERFW_TEST_BUILD_STATUS=1 bash "$SCRIPT_DIR/$SH" build-all
 
 # ========== НЕ ТЕСТИРУЕМ (раскомментировать для полного прогона) ==========
 # --- реальные сборки: долгие процессы, проверять вручную; N = существующий профиль ---
@@ -207,12 +284,25 @@ run 1 "BUILD no id" BUILD
 # clean 1 N, clean 2 N ... → реальная очистка (не проверяем)
 
 # --- Project Health Checks ---
+wait_all
 TEE_LINE="" tee_line
 TEE_LINE="=== Project Health Checks ===" tee_line
 TEE_LINE="" tee_line
 
 # Сравнение ключей
 run_check 0 "Localization Keys" "diff <(grep -E '^(L_|H_)' system/lang/ru.env | sed 's/=.*//' | sort) <(grep -E '^(L_|H_)' system/lang/en.env | sed 's/=.*//' | sort)"
+run_check 0 "Version Sync" "ver=\$(grep -E '^ROUTERFW_VERSION=' system/version.env | cut -d= -f2 | tr -d '\r'); grep -Fq \"VER_NUM=\\\"\$ver\\\"\" _Builder.sh && grep -Fq \"set \\\"VER_NUM=\$ver\\\"\" _Builder.bat && grep -Fq \"v\$ver+\" README.md && grep -Fq \"v\$ver+\" README.en.md && grep -Fq \"Version: \$ver.\" docs/ARCHITECTURE_en.md && grep -Fq \"Версия: \$ver.\" docs/ARCHITECTURE_ru.md"
+run_check 0 "Shell Syntax" "for f in _Builder.sh tester.sh system/*.sh; do bash -n \"\$f\" || exit 1; done"
+run_check 0 "No Global Docker Prune" "pat='(docker(\\.exe)?|podman) (network|volume|system) pr''une|run_container .* (network|volume|system) pr''une|\\$C_EXE .*system pr''une|%CONTAINER_EXE% system pr''une'; ! grep -R -E \"\$pat\" _Builder.sh _Builder.bat tester.sh tester.bat system/*.sh system/*.ps1 >/dev/null"
+run_check 0 "Runtime Env Override" "tmpdir=\$(mktemp -d); trap 'rm -rf \"\$tmpdir\"' EXIT; printf '%s\n' '#!/bin/sh' 'exit 1' >\"\$tmpdir/docker\"; printf '%s\n' '#!/bin/sh' 'case \"\$1 \$2\" in' '  \"info \"|\"info\") exit 0 ;;' '  \"compose version\") exit 0 ;;' '  \"--version \"|\"--version\") echo \"podman version 5.0.0\"; exit 0 ;;' '  *) exit 0 ;;' 'esac' >\"\$tmpdir/podman\"; chmod +x \"\$tmpdir/docker\" \"\$tmpdir/podman\"; PATH=\"\$tmpdir:\$PATH\" ROUTERFW_TEST_MODE= ROUTERFW_RUNTIME=podman bash \"$SCRIPT_DIR/$SH\" help >/dev/null 2>&1"
+run_check 0 "Runtime WSL Podman Bridge" "tmpdir=\$(mktemp -d); trap 'rm -rf \"\$tmpdir\"' EXIT; for tool in bash head cut tr sed dirname pwd locale cat find sort awk basename clear mktemp; do real=\$(command -v \"\$tool\" 2>/dev/null || true); [ -n \"\$real\" ] && ln -s \"\$real\" \"\$tmpdir/\$tool\" 2>/dev/null || true; done; printf '%s\n' '#!/bin/sh' 'if [ \"\$1\" = \"-qi\" ] && [ \"\$2\" = \"microsoft\" ] && [ \"\$3\" = \"/proc/version\" ]; then exit 0; fi' 'exec /usr/bin/grep \"\$@\"' >\"\$tmpdir/grep\"; printf '%s\n' '#!/bin/sh' 'case \"\$1\" in' '  info) exit 0 ;;' '  --version) echo \"podman version 5.8.3\"; exit 0 ;;' '  compose) [ \"\$2\" = \"version\" ] && { echo \"Docker Compose version v5.2.0\"; exit 0; } ;;' 'esac' 'exit 1' >\"\$tmpdir/podman.exe\"; chmod +x \"\$tmpdir/grep\" \"\$tmpdir/podman.exe\"; out=\$(PATH=\"\$tmpdir\" ROUTERFW_TEST_MODE= ROUTERFW_RUNTIME=podman ROUTERFW_NO_CLS=1 \"\$tmpdir/bash\" \"$SCRIPT_DIR/$SH\" help 2>&1); rc=\$?; test \$rc -eq 0 && printf '%s\n' \"\$out\" | \"\$tmpdir/grep\" -F 'podman + podman.exe compose' >/dev/null"
+run_check 0 "Runtime Explicit Failure" "tmpdir=\$(mktemp -d); trap 'rm -rf \"\$tmpdir\"' EXIT; printf '%s\n' '#!/bin/sh' 'exit 1' >\"\$tmpdir/docker\"; cp \"\$tmpdir/docker\" \"\$tmpdir/docker.exe\"; chmod +x \"\$tmpdir/docker\" \"\$tmpdir/docker.exe\"; out=\$(PATH=\"\$tmpdir:\$PATH\" ROUTERFW_TEST_MODE= bash \"$SCRIPT_DIR/$SH\" --runtime=docker help 2>&1); rc=\$?; test \$rc -eq 1 && printf '%s\n' \"\$out\" | grep -E 'Docker (not found|не обнаружен)' >/dev/null"
+run_check 0 "Compose Wrapper Docker" "log_file=\$(mktemp); trap 'rm -f \"\$log_file\"' EXIT; ROUTERFW_TEST_MODE=1 ROUTERFW_NO_CLS=1 ROUTERFW_TEST_COMPOSE_BASE=system/docker-compose.yaml ROUTERFW_TEST_COMPOSE_ARGS='-p audit up builder-openwrt' ROUTERFW_TEST_COMPOSE_LOG=\"\$log_file\" bash \"$SCRIPT_DIR/$SH\" help >/dev/null 2>&1; line=\$(head -n 1 \"\$log_file\"); [[ \"\$line\" == 'docker compose -f system/docker-compose.yaml -p audit up builder-openwrt' ]] && [[ \"\$line\" != *'docker-compose.yaml -f system/docker-compose.yaml'* ]]"
+run_check 0 "Compose Wrapper Podman" "log_file=\$(mktemp); trap 'rm -f \"\$log_file\"' EXIT; ROUTERFW_TEST_MODE=1 ROUTERFW_NO_CLS=1 ROUTERFW_RUNTIME=podman ROUTERFW_TEST_COMPOSE_BASE=system/docker-compose.yaml ROUTERFW_TEST_COMPOSE_ARGS='-p audit up builder-openwrt' ROUTERFW_TEST_COMPOSE_LOG=\"\$log_file\" bash \"$SCRIPT_DIR/$SH\" help >/dev/null 2>&1; line=\$(head -n 1 \"\$log_file\"); [[ \"\$line\" == 'ROUTERFW_BIND_RW_SUFFIX=:z ROUTERFW_BIND_RO_SUFFIX=:ro,z ROUTERFW_BIND_PROFILES_SUFFIX=:ro,z podman-compose -f system/docker-compose.yaml -f system/podman-compose.yaml -p audit up builder-openwrt' ]] && [[ \"\$line\" != *'docker-compose.yaml -f system/docker-compose.yaml'* ]]"
+run_check 0 "Compose Wrapper Docker Standalone" "log_file=\$(mktemp); trap 'rm -f \"\$log_file\"' EXIT; ROUTERFW_TEST_MODE=1 ROUTERFW_NO_CLS=1 ROUTERFW_TEST_COMPOSE_PROVIDER=standalone ROUTERFW_TEST_COMPOSE_BASE=system/docker-compose.yaml ROUTERFW_TEST_COMPOSE_ARGS='-p audit up builder-openwrt' ROUTERFW_TEST_COMPOSE_LOG=\"\$log_file\" bash \"$SCRIPT_DIR/$SH\" help >/dev/null 2>&1; line=\$(head -n 1 \"\$log_file\"); [[ \"\$line\" == 'docker-compose -f system/docker-compose.yaml -p audit up builder-openwrt' ]]"
+run_check 0 "Compose Wrapper Podman Standalone" "log_file=\$(mktemp); trap 'rm -f \"\$log_file\"' EXIT; ROUTERFW_TEST_MODE=1 ROUTERFW_NO_CLS=1 ROUTERFW_RUNTIME=podman ROUTERFW_TEST_COMPOSE_PROVIDER=standalone ROUTERFW_TEST_COMPOSE_BASE=system/docker-compose.yaml ROUTERFW_TEST_COMPOSE_ARGS='-p audit up builder-openwrt' ROUTERFW_TEST_COMPOSE_LOG=\"\$log_file\" bash \"$SCRIPT_DIR/$SH\" help >/dev/null 2>&1; line=\$(head -n 1 \"\$log_file\"); [[ \"\$line\" == 'ROUTERFW_BIND_RW_SUFFIX=:z ROUTERFW_BIND_RO_SUFFIX=:ro,z ROUTERFW_BIND_PROFILES_SUFFIX=:ro,z podman-compose -f system/docker-compose.yaml -f system/podman-compose.yaml -p audit up builder-openwrt' ]]"
+run_check 0 "Packer Roundtrip" "set -e; tmp_unpack=\$(mktemp -d); original_unpacker=\$(mktemp); cp ./_unpacker.sh \"\$original_unpacker\"; archive_file=''; trap 'cp \"\$original_unpacker\" ./_unpacker.sh; rm -f \"\$original_unpacker\"; rm -rf \"\$tmp_unpack\"; if [ -n \"\$archive_file\" ] && [ -f \"\$archive_file\" ]; then rm -f \"\$archive_file\"; fi' EXIT; before=\$(find . -maxdepth 1 -name 'routerFW_LinuxDockerBuilder_v*.tar.gz' -print | sort); printf '\n' | ROUTERFW_TEST_MODE=1 bash ./_packer.sh >/dev/null 2>&1; test -x ./_unpacker.sh; archive_file=\$(find . -maxdepth 1 -name 'routerFW_LinuxDockerBuilder_v*.tar.gz' -print | sort | grep -Fvx \"\$before\" | head -n 1 || true); cp ./_unpacker.sh \"\$tmp_unpack/_unpacker.sh\"; (cd \"\$tmp_unpack\" && bash ./_unpacker.sh >/dev/null 2>&1); for rel in system/podman-compose.yaml system/podman-compose-src.yaml system/version.env; do test -f \"\$tmp_unpack/\$rel\"; cmp -s \"./\$rel\" \"\$tmp_unpack/\$rel\"; done"
+run_check 0 "Packer Corrupt Unpack Fails" "set -e; tmp_unpack=\$(mktemp -d); original_unpacker=\$(mktemp); cp ./_unpacker.sh \"\$original_unpacker\"; archive_file=''; trap 'cp \"\$original_unpacker\" ./_unpacker.sh; rm -f \"\$original_unpacker\"; rm -rf \"\$tmp_unpack\"; if [ -n \"\$archive_file\" ] && [ -f \"\$archive_file\" ]; then rm -f \"\$archive_file\"; fi' EXIT; before=\$(find . -maxdepth 1 -name 'routerFW_LinuxDockerBuilder_v*.tar.gz' -print | sort); printf '\n' | ROUTERFW_TEST_MODE=1 bash ./_packer.sh >/dev/null 2>&1; archive_file=\$(find . -maxdepth 1 -name 'routerFW_LinuxDockerBuilder_v*.tar.gz' -print | sort | grep -Fvx \"\$before\" | head -n 1 || true); awk 'BEGIN{inblk=0;done=0} \$0==\"# BEGIN_B64_ system/version.env\"{inblk=1;print;next} \$0==\"# END_B64_ system/version.env\"{inblk=0;print;next} inblk && !done && \$0 !~ /^#/{print \"!!!!\"; done=1; next} {print} END{exit done?0:1}' ./_unpacker.sh > \"\$tmp_unpack/_unpacker.sh\"; (cd \"\$tmp_unpack\" && ! bash ./_unpacker.sh >/dev/null 2>&1); test ! -f \"\$tmp_unpack/system/version.env\""
 
 # Проверка BOM
 BOM_CHECK_CMD="
@@ -234,8 +324,11 @@ BOM_CHECK_CMD="
 "
 run_check 0 "BOM Signature" "$BOM_CHECK_CMD"
 
+wait_all
 TEE_LINE="" tee_line
 TEE_LINE="=== Итого: $PASS OK, $FAIL FAIL ===" tee_line
 TEE_LINE="" tee_line
-rm -f "$TEMP_OUT"
+if [ "$FAIL" -gt 0 ]; then
+  exit 1
+fi
 exit 0
