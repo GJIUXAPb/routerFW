@@ -23,7 +23,7 @@ call :DECODE_FILE "system/podman-compose-src.yaml" "6f5ce3bc3e41b20d8a77fafac9e4
 call :DECODE_FILE "system/ib_builder.sh" "99c30894e1bef8357304a138fa7ffd37" || exit /b 1
 call :DECODE_FILE "system/src_builder.sh" "33bc14ca711ee8e5c6ca3f25cbf47f9d" || exit /b 1
 call :DECODE_FILE "system/dockerfile" "4bf82ca049c6b8de9f1533641ac9f6c9" || exit /b 1
-call :DECODE_FILE "system/dockerfile.legacy" "d6c023dbdd46b0682778b63adb320d88" || exit /b 1
+call :DECODE_FILE "system/dockerfile.legacy" "4aa81f021e58e82bc680b26cad48dad7" || exit /b 1
 call :DECODE_FILE "system/src.dockerfile" "17026a270278f0378c1df88975da0bef" || exit /b 1
 call :DECODE_FILE "system/src.dockerfile.legacy" "ea652c28114bd705939b4a5d88e36219" || exit /b 1
 call :DECODE_FILE "system/create_profile.ps1" "ab9c22c0a8589a2d8b9138999c1cb705" || exit /b 1
@@ -777,16 +777,15 @@ NDVmYTBiMzQx
 :: END_B64_ system/dockerfile
 
 :: BEGIN_B64_ system/dockerfile.legacy
-IyBmaWxlIHN5c3RlbS9kb2NrZXJmaWxlLmxlZ2FjeSB2MS4yDQpGUk9NIHVidW50dToxOC4wNA0K
-RU5WIERFQklBTl9GUk9OVEVORD1ub25pbnRlcmFjdGl2ZQ0KUlVOIGFwdC1nZXQgdXBkYXRlICYm
-IGFwdC1nZXQgaW5zdGFsbCAteSBcDQoJbWMgcHl0aG9uMyBidWlsZC1lc3NlbnRpYWwgcHl0aG9u
-Mi43IGxpYm5jdXJzZXM1LWRldiBsaWJuY3Vyc2VzdzUtZGV2IHpsaWIxZy1kZXYgZ2F3ayBnaXQg
-XA0KCWdldHRleHQgbGlic3NsLWRldiB4c2x0cHJvYyB3Z2V0IHVuemlwIHh6LXV0aWxzIGNhLWNl
-cnRpZmljYXRlcyBcDQoJJiYgdXBkYXRlLWNhLWNlcnRpZmljYXRlcyBcDQoJJiYgbG4gLXNmIC91
-c3IvYmluL3B5dGhvbjIuNyAvdXNyL2Jpbi9weXRob24gXA0KCSYmIHJtIC1yZiAvdmFyL2xpYi9h
-cHQvbGlzdHMvKg0KQ09QWSBzeXN0ZW0vb3BlbnNzbC5jbmYgL2V0Yy9zc2wvb3BlbnNzbC5jbmYN
-CldPUktESVIgL2J1aWxkZXJfd29ya3NwYWNlDQojIGNoZWNrc3VtOk1ENT1iODRkZWQzMmFlN2Q2
-NjcyZDZiMzhlMTljNDBlMmYzMw==
+IyBmaWxlIHN5c3RlbS9kb2NrZXJmaWxlLmxlZ2FjeSB2MS4zCkZST00gdWJ1bnR1OjIwLjA0CkVO
+ViBERUJJQU5fRlJPTlRFTkQ9bm9uaW50ZXJhY3RpdmUKUlVOIGFwdC1nZXQgdXBkYXRlICYmIGFw
+dC1nZXQgaW5zdGFsbCAteSBcCgltYyBweXRob24zIGJ1aWxkLWVzc2VudGlhbCBweXRob24yIHB5
+dGhvbi1pcy1weXRob24yIGxpYm5jdXJzZXM1LWRldiBsaWJuY3Vyc2VzdzUtZGV2IHpsaWIxZy1k
+ZXYgZ2F3ayBnaXQgXAoJZ2V0dGV4dCBsaWJzc2wtZGV2IHhzbHRwcm9jIHdnZXQgdW56aXAgeHot
+dXRpbHMgY2EtY2VydGlmaWNhdGVzIFwKCSYmIHVwZGF0ZS1jYS1jZXJ0aWZpY2F0ZXMgXAoJJiYg
+cm0gLXJmIC92YXIvbGliL2FwdC9saXN0cy8qCkNPUFkgc3lzdGVtL29wZW5zc2wuY25mIC9ldGMv
+c3NsL29wZW5zc2wuY25mCldPUktESVIgL2J1aWxkZXJfd29ya3NwYWNlCiMgY2hlY2tzdW06TUQ1
+PWZlOGY3OTg1YzE0NWFlMzJmYzJkYTdlMDk0M2M5M2E0
 :: END_B64_ system/dockerfile.legacy
 
 :: BEGIN_B64_ system/src.dockerfile
