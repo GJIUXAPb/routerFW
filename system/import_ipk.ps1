@@ -9,7 +9,39 @@ param (
 )
 
 $ScriptVersion = "3.0"
-$ContainerRuntime = if ($env:ROUTERFW_CONTAINER_RUNTIME) { $env:ROUTERFW_CONTAINER_RUNTIME } else { "docker" }
+
+function Test-ContainerRuntime {
+    param([Parameter(Mandatory=$true)][string]$Command)
+
+    if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+
+    & $Command info *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Resolve-ContainerRuntime {
+    $requested = if ($env:ROUTERFW_CONTAINER_RUNTIME) { $env:ROUTERFW_CONTAINER_RUNTIME } else { "auto" }
+
+    switch -Regex ($requested.ToLowerInvariant()) {
+        "^(|auto)$" { $candidates = @("docker", "podman", "docker.exe", "podman.exe"); break }
+        "^podman$" { $candidates = @("podman", "podman.exe"); break }
+        "^docker$" { $candidates = @("docker", "docker.exe"); break }
+        default { $candidates = @($requested); break }
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-ContainerRuntime -Command $candidate) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
+$ContainerRuntime = $null
+$IsPodmanRuntime = $false
 
 # --- ИНИЦИАЛИЗАЦИЯ ПУТЕЙ ---
 if ($ProfileID -ne "") {
@@ -67,15 +99,24 @@ foreach ($ipk in $ipkFiles) {
     $pkgName = ""; $pkgVersion = ""; $pkgDeps = ""; $pkgArch = ""; $postinst = ""; $prerm = ""; $depsList = @()
 
     if ($isApk) {
-        # 2a. Распаковка APK v3 (через Docker/apk-tools)
-        Write-Host "    [*] APK v3 detected. Using Docker 'apk adbdump'..." -ForegroundColor Cyan
+        # 2a. Распаковка APK v3 через выбранный контейнерный runtime.
+        if (-not $ContainerRuntime) {
+            $ContainerRuntime = Resolve-ContainerRuntime
+            if (-not $ContainerRuntime) {
+                Write-Host "[ERROR] Docker/Podman runtime is not available." -ForegroundColor Red
+                exit 1
+            }
+            $ContainerRuntimeName = Split-Path -Leaf $ContainerRuntime
+            $IsPodmanRuntime = ($ContainerRuntimeName -match '^podman(\.exe)?$')
+        }
+        Write-Host "    [*] APK v3 detected. Using $ContainerRuntime 'apk adbdump'..." -ForegroundColor Cyan
         
         $apkFullPath = $ipk.FullName
         $apkParentDir = $ipk.DirectoryName
         $apkFileName = $ipk.Name
         
         try {
-            $mountArg = if ($ContainerRuntime -eq "podman") { "${apkParentDir}:/data:ro,z" } else { "${apkParentDir}:/data:ro" }
+            $mountArg = if ($IsPodmanRuntime) { "${apkParentDir}:/data:ro,z" } else { "${apkParentDir}:/data:ro" }
             $adbdumpOutput = & $ContainerRuntime run --rm -v $mountArg alpine:latest apk adbdump "/data/$apkFileName"
             $adbdumpOutputString = $adbdumpOutput -join "`n"
 
@@ -404,4 +445,4 @@ Write-Host "==========================================================" -Foregro
 Write-Host "  DONE: $importedCount packages imported." -ForegroundColor Cyan
 if ($ProfileID) { Write-Host "  Location: $outDir" -ForegroundColor Gray }
 Write-Host "==========================================================`n"
-# checksum:MD5=7a8a1e971f69b3d849d858f8785c83dd
+# checksum:MD5=efefcef0a2e4d8510dc7e8e2424c1088

@@ -7,7 +7,39 @@ SCRIPT_VERSION="1.0"
 # --- ПАРАМЕТРЫ ---
 PROFILE_ID="${1:-}"
 TARGET_ARCH="${2:-}"
-CONTAINER_RUNTIME_BIN="${ROUTERFW_CONTAINER_RUNTIME:-docker}"
+
+resolve_container_runtime() {
+    local requested="${ROUTERFW_CONTAINER_RUNTIME:-auto}"
+    local candidates=()
+
+    case "$requested" in
+        ""|auto)
+            candidates=(docker podman docker.exe podman.exe)
+            ;;
+        podman)
+            candidates=(podman podman.exe)
+            ;;
+        docker)
+            candidates=(docker docker.exe)
+            ;;
+        *)
+            candidates=("$requested")
+            ;;
+    esac
+
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        if command -v "$candidate" >/dev/null 2>&1 && "$candidate" info >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+CONTAINER_RUNTIME_BIN=""
+CONTAINER_RUNTIME_NAME=""
 
 # --- ЦВЕТА ---
 C_CYAN='\033[0;36m'
@@ -112,6 +144,12 @@ if [ ${#APK_FILES[@]} -eq 0 ]; then
     exit 0
 fi
 
+CONTAINER_RUNTIME_BIN="$(resolve_container_runtime)" || {
+    echo "[ERR] Docker/Podman runtime is not available."
+    exit 1
+}
+CONTAINER_RUNTIME_NAME="$(basename "$CONTAINER_RUNTIME_BIN")"
+
 echo -e "${C_CYAN}[*] $T_SCANNING $APK_DIR (${#APK_FILES[@]} files)${C_RST}"
 echo ""
 
@@ -123,12 +161,12 @@ for APK_PATH in "${APK_FILES[@]}"; do
     APK_NAME=$(basename "$APK_PATH")
     echo -e "${C_CYAN}[${SCANNED}] ${APK_NAME}${C_RST}"
 
-    # --- 1. Docker adbdump ---
+    # --- 1. Runtime adbdump ---
     APK_ABS_DIR=$(cd "$(dirname "$APK_PATH")" && pwd)
     APK_FILE=$(basename "$APK_PATH")
 
     MOUNT_ARG="$APK_ABS_DIR:/data:ro"
-    if [ "$CONTAINER_RUNTIME_BIN" = "podman" ]; then
+    if [[ "$CONTAINER_RUNTIME_NAME" == podman* ]]; then
         MOUNT_ARG="$APK_ABS_DIR:/data:ro,z"
     fi
     ADBDUMP_OUT=$("$CONTAINER_RUNTIME_BIN" run --rm -v "$MOUNT_ARG" alpine:latest apk adbdump "/data/$APK_FILE" 2>/dev/null)
@@ -247,4 +285,4 @@ if [ "$WARNINGS" -gt 0 ]; then
     exit 1
 fi
 exit 0
-# checksum:MD5=5963c86d9cf35380aa1d378a2ad053d6
+# checksum:MD5=7e4d0dd7d2abb884ebe5bac0c30d9e4e

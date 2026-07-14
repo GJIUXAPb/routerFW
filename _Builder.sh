@@ -603,7 +603,8 @@ esac
 if [ "$RUNTIME_REQUIRED" -eq 1 ]; then
     resolve_runtime
     RUNTIME_READY=1
-    export ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME"
+    CONTAINER_RUNTIME_BIN="${CONTAINER_CMD[0]:-$CONTAINER_RUNTIME}"
+    export ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME_BIN"
 
     if [ -n "${ROUTERFW_TEST_COMPOSE_BASE:-}" ]; then
         compose_test_args=()
@@ -763,7 +764,7 @@ build_routine() {
             # Извлекаем SRC_ARCH из конфига (как в ручном режиме)
             local pkg_arch=$(grep "SRC_ARCH=" "profiles/$conf_file" | sed 's/SRC_ARCH=//;s/"//g' | tr -d '\r')
             export APK_SCANNER_LANG="$SYS_LANG"
-            ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME" bash "system/apk_scanner.sh" "$p_id" "$pkg_arch" || {
+            ROUTERFW_CONTAINER_RUNTIME="${CONTAINER_CMD[0]:-$CONTAINER_RUNTIME}" bash "system/apk_scanner.sh" "$p_id" "$pkg_arch" || {
                 echo -e "${C_YEL}[!] Scanner found issues. Continue anyway? [Y/n]: ${C_RST}"
                 read -r scan_choice
                 if [[ "$scan_choice" =~ ^[Nn]$ ]]; then
@@ -1927,7 +1928,7 @@ dispatch_cli() {
             local p_id="${SELECTED_CONF%.conf}"
             p_id=$(echo "$p_id" | tr -d '\r')
             local p_arch=$(grep "SRC_ARCH=" "profiles/$SELECTED_CONF" | cut -d'"' -f2 | tr -d '\r')
-            ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME" bash system/import_ipk.sh "$p_id" "$p_arch"
+            ROUTERFW_CONTAINER_RUNTIME="${CONTAINER_CMD[0]:-$CONTAINER_RUNTIME}" bash system/import_ipk.sh "$p_id" "$p_arch"
             exit 0
             ;;
         CLEAN)
@@ -2122,7 +2123,7 @@ while true; do
                 sel_arch=$(grep "SRC_ARCH=" "profiles/$sel_conf" | sed 's/SRC_ARCH=//;s/"//g' | tr -d '\r')
                 echo ""
                 export APK_SCANNER_LANG="$SYS_LANG"
-                ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME" bash "system/apk_scanner.sh" "$sel_id" "$sel_arch" || true
+                ROUTERFW_CONTAINER_RUNTIME="${CONTAINER_CMD[0]:-$CONTAINER_RUNTIME}" bash "system/apk_scanner.sh" "$sel_id" "$sel_arch" || true
                 echo ""
             fi
             pause
@@ -2252,7 +2253,7 @@ while true; do
                     p_id="${profiles[$i_id]%.conf}"
                     # FIX: Добавили tr -d '\r' для защиты от Windows-символов
                     p_arch=$(grep "SRC_ARCH=" "profiles/${profiles[$i_id]}" | cut -d'"' -f2 | tr -d '\r')
-                    ROUTERFW_CONTAINER_RUNTIME="$CONTAINER_RUNTIME" bash system/import_ipk.sh "$p_id" "$p_arch"
+                    ROUTERFW_CONTAINER_RUNTIME="${CONTAINER_CMD[0]:-$CONTAINER_RUNTIME}" bash system/import_ipk.sh "$p_id" "$p_arch"
                 fi
             fi ;;
         W)
@@ -2270,4 +2271,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=bb50291c8e0991ecfcfd5fca931fc672
+# checksum:MD5=c58004c493feedd7376f557fe2ccaf9d

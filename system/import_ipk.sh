@@ -17,10 +17,43 @@ C_WHT='\033[1;37m'
 C_RST='\033[0m'
 
 # --- ПРОВЕРКА ЗАВИСИМОСТЕЙ ---
-CONTAINER_RUNTIME_BIN="${ROUTERFW_CONTAINER_RUNTIME:-docker}"
-for cmd in curl jq tar ar date "$CONTAINER_RUNTIME_BIN"; do
-    if ! command -v $cmd &> /dev/null; then
+resolve_container_runtime() {
+    local requested="${ROUTERFW_CONTAINER_RUNTIME:-auto}"
+    local candidates=()
+
+    case "$requested" in
+        ""|auto)
+            candidates=(docker podman docker.exe podman.exe)
+            ;;
+        podman)
+            candidates=(podman podman.exe)
+            ;;
+        docker)
+            candidates=(docker docker.exe)
+            ;;
+        *)
+            candidates=("$requested")
+            ;;
+    esac
+
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        if command -v "$candidate" >/dev/null 2>&1 && "$candidate" info >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+CONTAINER_RUNTIME_BIN=""
+CONTAINER_RUNTIME_NAME=""
+
+for cmd in curl jq tar ar date; do
+    if ! command -v "$cmd" &> /dev/null; then
         echo -e "${C_RED}Ошибка: утилита '$cmd' не найдена. Установите её (sudo apt install binutils)${C_RST}"
+        exit 1
     fi
 done
 
@@ -94,14 +127,21 @@ for IPK_PATH in "${IPK_FILES[@]}"; do
     PRERM_CONTENT=""
 
     if [ "$IS_APK" = true ]; then
-        # 2a. Распаковка APK v3 (через Docker/apk-tools)
-        echo -e "    ${C_CYAN}[*] APK v3 detected. Using Docker 'apk adbdump'...${C_RST}"
+        # 2a. Распаковка APK v3 через выбранный контейнерный runtime.
+        if [ -z "$CONTAINER_RUNTIME_BIN" ]; then
+            CONTAINER_RUNTIME_BIN="$(resolve_container_runtime)" || {
+                echo -e "${C_RED}Ошибка: Docker/Podman runtime не найден или недоступен.${C_RST}"
+                exit 1
+            }
+            CONTAINER_RUNTIME_NAME="$(basename "$CONTAINER_RUNTIME_BIN")"
+        fi
+        echo -e "    ${C_CYAN}[*] APK v3 detected. Using ${CONTAINER_RUNTIME_BIN} 'apk adbdump'...${C_RST}"
         
         APK_ABS_DIR=$(cd "$(dirname "$IPK_PATH")" && pwd)
         APK_FILE=$(basename "$IPK_PATH")
         
         MOUNT_ARG="$APK_ABS_DIR:/data:ro"
-        if [ "$CONTAINER_RUNTIME_BIN" = "podman" ]; then
+        if [[ "$CONTAINER_RUNTIME_NAME" == podman* ]]; then
             MOUNT_ARG="$APK_ABS_DIR:/data:ro,z"
         fi
         ADBDUMP_OUT=$("$CONTAINER_RUNTIME_BIN" run --rm -v "$MOUNT_ARG" alpine:latest apk adbdump "/data/$APK_FILE" 2>/dev/null)
@@ -342,4 +382,4 @@ echo -e "${C_CYAN}==========================================================${C_
 # Авто-определение языка для паузы
 [[ "$LANG" == *"ru"* ]] && echo -ne "\n Нажмите Enter..." || echo -ne "\n Press Enter..."
 read -r
-# checksum:MD5=8acb0889f7c68b6b9e44396d6011f177
+# checksum:MD5=6a3056e500fbcde0d6be5b0cae56d389

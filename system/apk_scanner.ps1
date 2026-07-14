@@ -11,7 +11,39 @@ param (
 )
 
 $ScriptVersion = "1.0"
-$ContainerRuntime = if ($env:ROUTERFW_CONTAINER_RUNTIME) { $env:ROUTERFW_CONTAINER_RUNTIME } else { "docker" }
+
+function Test-ContainerRuntime {
+    param([Parameter(Mandatory=$true)][string]$Command)
+
+    if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+
+    & $Command info *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Resolve-ContainerRuntime {
+    $requested = if ($env:ROUTERFW_CONTAINER_RUNTIME) { $env:ROUTERFW_CONTAINER_RUNTIME } else { "auto" }
+
+    switch -Regex ($requested.ToLowerInvariant()) {
+        "^(|auto)$" { $candidates = @("docker", "podman", "docker.exe", "podman.exe"); break }
+        "^podman$" { $candidates = @("podman", "podman.exe"); break }
+        "^docker$" { $candidates = @("docker", "docker.exe"); break }
+        default { $candidates = @($requested); break }
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-ContainerRuntime -Command $candidate) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
+$ContainerRuntime = $null
+$IsPodmanRuntime = $false
 
 # --- ЯЗЫК (передаётся от билдера) ---
 $IsRU = ($Lang -eq "RU")
@@ -91,6 +123,14 @@ if ($apkFiles.Count -eq 0) {
     exit 0
 }
 
+$ContainerRuntime = Resolve-ContainerRuntime
+if (-not $ContainerRuntime) {
+    Write-Host "[ERROR] Docker/Podman runtime is not available." -ForegroundColor Red
+    exit 1
+}
+$ContainerRuntimeName = Split-Path -Leaf $ContainerRuntime
+$IsPodmanRuntime = ($ContainerRuntimeName -match '^podman(\.exe)?$')
+
 Write-Host "[*] $T_SCANNING $apkDir ($($apkFiles.Count) files)" -ForegroundColor Cyan
 Write-Host ""
 
@@ -103,9 +143,9 @@ foreach ($apk in $apkFiles) {
     $apkPath = $apk.FullName
     Write-Host "[$scanned] $apkName" -ForegroundColor Cyan
 
-    # --- 1. Docker adbdump ---
+    # --- 1. Runtime adbdump ---
     try {
-        $mountArg = if ($ContainerRuntime -eq "podman") { "$($apk.DirectoryName):/data:ro,z" } else { "$($apk.DirectoryName):/data:ro" }
+        $mountArg = if ($IsPodmanRuntime) { "$($apk.DirectoryName):/data:ro,z" } else { "$($apk.DirectoryName):/data:ro" }
         $adbdumpOutput = & $ContainerRuntime run --rm -v $mountArg alpine:latest apk adbdump "/data/$apkName"
         $adbdumpString = $adbdumpOutput -join "`n"
 
@@ -214,4 +254,4 @@ if ($warnings -gt 0) {
     exit 1
 }
 exit 0
-# checksum:MD5=1e0c2c4a79ec81bf031fb53f55256134
+# checksum:MD5=85778ec57ec0b20ae6dd137467e8d73b
