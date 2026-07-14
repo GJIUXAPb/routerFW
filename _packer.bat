@@ -136,7 +136,7 @@ for /f %%C in ('dir /b /a-d "%FULL_TEMP_DIR%\*.ready" 2^>nul ^| find /c /v ""') 
 <nul set /p "=Progress: !DONE_COUNT! / !IDX!   " >con
 <nul set /p "=                          " >con
 if !DONE_COUNT! LSS !IDX! (
-    timeout /t 1 >nul
+    powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>&1
     set /a WAIT_SECONDS+=1
     if !WAIT_SECONDS! GEQ !WAIT_LIMIT! goto PACK_WORKER_TIMEOUT
     goto :WAIT_LOOP
@@ -296,12 +296,12 @@ set /a ACTIVE_TASKS+=1
 exit /b 0
 
 :START_WORKER
-start "" /b "%ComSpec%" /d /c call "%~f0" :WORKER "%~1" "%~2" "%~3"
+start "" /b powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0system\packer_worker.ps1" -FilePath "%~1" -Id "%~2" -TempDir "%~3"
 exit /b
 
 :RUN_WORKER_SYNC
-call :WORKER "%~1" "%~2" "%~3"
-exit /b
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0system\packer_worker.ps1" -FilePath "%~1" -Id "%~2" -TempDir "%~3"
+exit /b %errorlevel%
 
 :WORKER
 rem Supports both direct label call and recursive file call with :WORKER as %1.
@@ -329,4 +329,4 @@ if not exist "%W_DIR%\%W_ID%.ready" (
     > "%W_DIR%\%W_ID%.ready" echo done
 )
 exit /b %W_RC%
-:: checksum:MD5=96aec18d739ddadd36abaf340431b787
+:: checksum:MD5=adbb67bf51986ee4e33fd0ebb5c1b8bd

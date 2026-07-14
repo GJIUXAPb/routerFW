@@ -425,6 +425,32 @@ print_runtime_errors() {
     done
 }
 
+runtime_auto_prompt_allowed() {
+    [ "$RUNTIME_EXPLICIT" -eq 0 ] || return 1
+    [ -z "${effective_1:-}" ] || return 1
+    [ -z "${ROUTERFW_TEST_MODE:-}" ] || return 1
+    [ -z "${ROUTERFW_TEST_COMPOSE_BASE:-}" ] || return 1
+    return 0
+}
+
+prompt_runtime_choice() {
+    local choice
+    local prompt="${L_RUNTIME_SELECT_PROMPT:-Runtime [D/p]:}"
+    RUNTIME_MENU_CHOICE=""
+    echo
+    echo -e "${L_RUNTIME_SELECT_TITLE:-Both Docker and Podman are available. Select runtime:}"
+    echo -e "  ${C_KEY}[D]${C_RST} ${L_RUNTIME_SELECT_DOCKER:-Docker}"
+    echo -e "  ${C_KEY}[P]${C_RST} ${L_RUNTIME_SELECT_PODMAN:-Podman}"
+    while true; do
+        read -r -p "$(printf '%b ' "$prompt")" choice || choice="D"
+        case "${choice^^}" in
+            ""|D|DOCKER) RUNTIME_MENU_CHOICE="docker"; return 0 ;;
+            P|PODMAN) RUNTIME_MENU_CHOICE="podman"; return 0 ;;
+            *) echo -e "${L_RUNTIME_SELECT_INVALID:-Invalid choice.}" ;;
+        esac
+    done
+}
+
 resolve_runtime() {
     if [[ -n "${ROUTERFW_TEST_MODE:-}" ]]; then
         case "$ROUTERFW_RUNTIME" in
@@ -458,13 +484,60 @@ resolve_runtime() {
     fi
     case "$ROUTERFW_RUNTIME" in
         auto)
+            local docker_ok=1 podman_ok=1 selected_runtime
+            local docker_container_runtime docker_container_label docker_compose_label docker_bridge
+            local podman_container_runtime podman_container_label podman_compose_label podman_bridge
+            local docker_container_cmd=() docker_compose_cmd=()
+            local podman_container_cmd=() podman_compose_cmd=()
+
             if try_runtime_candidate docker; then
-                # Prefer live Docker, but allow Podman fallback when only Docker CLI is present.
-                docker info >/dev/null 2>&1 && return 0
-                try_runtime_candidate podman && return 0
-                try_runtime_candidate docker && return 0
+                docker_ok=0
+                docker_container_runtime="$CONTAINER_RUNTIME"
+                docker_container_label="$CONTAINER_LABEL"
+                docker_compose_label="$COMPOSE_LABEL"
+                docker_bridge="$DOCKER_WINDOWS_BRIDGE"
+                docker_container_cmd=("${CONTAINER_CMD[@]}")
+                docker_compose_cmd=("${COMPOSE_CMD[@]}")
             fi
-            try_runtime_candidate podman && return 0
+            if try_runtime_candidate podman; then
+                podman_ok=0
+                podman_container_runtime="$CONTAINER_RUNTIME"
+                podman_container_label="$CONTAINER_LABEL"
+                podman_compose_label="$COMPOSE_LABEL"
+                podman_bridge="$DOCKER_WINDOWS_BRIDGE"
+                podman_container_cmd=("${CONTAINER_CMD[@]}")
+                podman_compose_cmd=("${COMPOSE_CMD[@]}")
+            fi
+
+            if [ "$docker_ok" -eq 0 ] && [ "$podman_ok" -eq 0 ] && runtime_auto_prompt_allowed; then
+                prompt_runtime_choice
+                selected_runtime="$RUNTIME_MENU_CHOICE"
+            elif [ "$docker_ok" -eq 0 ]; then
+                selected_runtime="docker"
+            elif [ "$podman_ok" -eq 0 ]; then
+                selected_runtime="podman"
+            fi
+
+            case "$selected_runtime" in
+                docker)
+                    CONTAINER_RUNTIME="$docker_container_runtime"
+                    CONTAINER_LABEL="$docker_container_label"
+                    COMPOSE_LABEL="$docker_compose_label"
+                    DOCKER_WINDOWS_BRIDGE="$docker_bridge"
+                    CONTAINER_CMD=("${docker_container_cmd[@]}")
+                    COMPOSE_CMD=("${docker_compose_cmd[@]}")
+                    return 0
+                    ;;
+                podman)
+                    CONTAINER_RUNTIME="$podman_container_runtime"
+                    CONTAINER_LABEL="$podman_container_label"
+                    COMPOSE_LABEL="$podman_compose_label"
+                    DOCKER_WINDOWS_BRIDGE="$podman_bridge"
+                    CONTAINER_CMD=("${podman_container_cmd[@]}")
+                    COMPOSE_CMD=("${podman_compose_cmd[@]}")
+                    return 0
+                    ;;
+            esac
             ;;
         docker|podman)
             RUNTIME_STRICT_PROBE=1 try_runtime_candidate "$ROUTERFW_RUNTIME" && return 0
@@ -2186,4 +2259,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=2eb9d614088391ca23ac3401e2f34812
+# checksum:MD5=19da480d258881e34c1c72dd62480f77

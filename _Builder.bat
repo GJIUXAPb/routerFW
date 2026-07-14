@@ -65,9 +65,9 @@ for %%P in (1 2 3 4 5 6 7 8 9) do (
     )
     if "!lat:~0,10!"=="--runtime=" (
         set "skip%%P=1"
-        if /i "!lat:~10!"=="auto" set "RUNTIME_FORCE=auto"
-        if /i "!lat:~10!"=="docker" set "RUNTIME_FORCE=docker"
-        if /i "!lat:~10!"=="podman" set "RUNTIME_FORCE=podman"
+        if /i "!lat:~10!"=="auto" set "RUNTIME_FORCE=auto" & set "RUNTIME_EXPLICIT=1"
+        if /i "!lat:~10!"=="docker" set "RUNTIME_FORCE=docker" & set "RUNTIME_EXPLICIT=1"
+        if /i "!lat:~10!"=="podman" set "RUNTIME_FORCE=podman" & set "RUNTIME_EXPLICIT=1"
         if /i not "!lat:~10!"=="auto" if /i not "!lat:~10!"=="docker" if /i not "!lat:~10!"=="podman" set "CLI_RUNTIME_ERROR=1"
     )
 )
@@ -103,12 +103,12 @@ goto :eof
 :cli_runtime_skip
 set "curr=!la%1!"
 set "next=!la%2!"
-if /i "!curr!"=="--runtime" if /i "!next!"=="auto" set "RUNTIME_FORCE=auto" & set "skip%1=1" & set "skip%2=1"
-if /i "!curr!"=="--runtime" if /i "!next!"=="docker" set "RUNTIME_FORCE=docker" & set "skip%1=1" & set "skip%2=1"
-if /i "!curr!"=="--runtime" if /i "!next!"=="podman" set "RUNTIME_FORCE=podman" & set "skip%1=1" & set "skip%2=1"
-if /i "!curr!"=="-r" if /i "!next!"=="auto" set "RUNTIME_FORCE=auto" & set "skip%1=1" & set "skip%2=1"
-if /i "!curr!"=="-r" if /i "!next!"=="docker" set "RUNTIME_FORCE=docker" & set "skip%1=1" & set "skip%2=1"
-if /i "!curr!"=="-r" if /i "!next!"=="podman" set "RUNTIME_FORCE=podman" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="--runtime" if /i "!next!"=="auto" set "RUNTIME_FORCE=auto" & set "RUNTIME_EXPLICIT=1" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="--runtime" if /i "!next!"=="docker" set "RUNTIME_FORCE=docker" & set "RUNTIME_EXPLICIT=1" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="--runtime" if /i "!next!"=="podman" set "RUNTIME_FORCE=podman" & set "RUNTIME_EXPLICIT=1" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="-r" if /i "!next!"=="auto" set "RUNTIME_FORCE=auto" & set "RUNTIME_EXPLICIT=1" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="-r" if /i "!next!"=="docker" set "RUNTIME_FORCE=docker" & set "RUNTIME_EXPLICIT=1" & set "skip%1=1" & set "skip%2=1"
+if /i "!curr!"=="-r" if /i "!next!"=="podman" set "RUNTIME_FORCE=podman" & set "RUNTIME_EXPLICIT=1" & set "skip%1=1" & set "skip%2=1"
 if /i "!curr!"=="--runtime" if "!next!"=="" set "skip%1=1" & set "CLI_RUNTIME_ERROR=1"
 if /i "!curr!"=="--runtime" if not "!next!"=="" if /i not "!next!"=="auto" if /i not "!next!"=="docker" if /i not "!next!"=="podman" set "skip%1=1" & set "skip%2=1" & set "CLI_RUNTIME_ERROR=1"
 if /i "!curr!"=="-r" if "!next!"=="" set "skip%1=1" & set "CLI_RUNTIME_ERROR=1"
@@ -119,8 +119,12 @@ goto :eof
 :: === ЯЗЫКОВОЙ МОДУЛЬ ===
 :: ТУМБЛЕR: AUTO (детект), RU (всегда рус), EN (всегда англ)
 if not defined FORCE_LANG set "FORCE_LANG=AUTO"
-if not defined RUNTIME_FORCE if defined ROUTERFW_RUNTIME set "RUNTIME_FORCE=%ROUTERFW_RUNTIME%"
+if not defined RUNTIME_FORCE if defined ROUTERFW_RUNTIME set "RUNTIME_FORCE=%ROUTERFW_RUNTIME%" & set "RUNTIME_EXPLICIT=1"
 if not defined RUNTIME_FORCE set "RUNTIME_FORCE=auto"
+set "HAS_EFFECTIVE_ARGS=0"
+for %%P in (1 2 3 4 5 6 7 8 9) do (
+    if "!skip%%P!"=="0" if not "!la%%P!"=="" set "HAS_EFFECTIVE_ARGS=1"
+)
 set "SYS_LANG=EN"
 set /a "ru_score=0"
 :: Bootstrap — dict not yet available; hardcoded strings are intentional
@@ -1511,17 +1515,66 @@ if /i not "%ROUTERFW_RUNTIME%"=="auto" (
     exit /b 1
 )
 call :TRY_RUNTIME_DOCKER
-if not errorlevel 1 exit /b 0
-call :TRY_RUNTIME_PODMAN
-if not errorlevel 1 exit /b 0
+set "AUTO_DOCKER_RC=!errorlevel!"
+if "!AUTO_DOCKER_RC!"=="0" (
+    set "AUTO_DOCKER_CONTAINER=!CONTAINER_EXE!"
+    set "AUTO_DOCKER_COMPOSE=!COMPOSE_EXE!"
+    set "AUTO_DOCKER_PLUGIN=!COMPOSE_IS_PLUGIN!"
+)
+where podman >nul 2>&1
+if errorlevel 1 (
+    set "AUTO_PODMAN_RC=1"
+) else (
+    call :TRY_RUNTIME_PODMAN
+    set "AUTO_PODMAN_RC=!errorlevel!"
+    if "!AUTO_PODMAN_RC!"=="0" (
+        set "AUTO_PODMAN_CONTAINER=!CONTAINER_EXE!"
+        set "AUTO_PODMAN_COMPOSE=!COMPOSE_EXE!"
+        set "AUTO_PODMAN_PLUGIN=!COMPOSE_IS_PLUGIN!"
+    )
+)
+if "!AUTO_DOCKER_RC!"=="0" if "!AUTO_PODMAN_RC!"=="0" if not defined RUNTIME_EXPLICIT if "!HAS_EFFECTIVE_ARGS!"=="0" if not defined ROUTERFW_TEST_COMPOSE_BASE (
+    call :PROMPT_RUNTIME_CHOICE
+    if /i "!RUNTIME_MENU_CHOICE!"=="podman" goto RESTORE_AUTO_PODMAN
+)
+if "!AUTO_DOCKER_RC!"=="0" goto RESTORE_AUTO_DOCKER
+if "!AUTO_PODMAN_RC!"=="0" goto RESTORE_AUTO_PODMAN
 call :PRINT_RUNTIME_ERRORS
 exit /b 1
+
+:RESTORE_AUTO_DOCKER
+set "CONTAINER_EXE=%AUTO_DOCKER_CONTAINER%"
+set "COMPOSE_EXE=%AUTO_DOCKER_COMPOSE%"
+set "COMPOSE_IS_PLUGIN=%AUTO_DOCKER_PLUGIN%"
+exit /b 0
+
+:RESTORE_AUTO_PODMAN
+set "CONTAINER_EXE=%AUTO_PODMAN_CONTAINER%"
+set "COMPOSE_EXE=%AUTO_PODMAN_COMPOSE%"
+set "COMPOSE_IS_PLUGIN=%AUTO_PODMAN_PLUGIN%"
+exit /b 0
 
 :PRINT_RUNTIME_ERRORS
 if defined RUNTIME_ERROR_MESSAGE_1 echo %RUNTIME_ERROR_MESSAGE_1%
 if defined RUNTIME_ERROR_MESSAGE_2 echo %RUNTIME_ERROR_MESSAGE_2%
 if defined RUNTIME_ERROR_MESSAGE_3 echo %RUNTIME_ERROR_MESSAGE_3%
 exit /b 0
+
+:PROMPT_RUNTIME_CHOICE
+set "RUNTIME_MENU_CHOICE="
+echo.
+echo !L_RUNTIME_SELECT_TITLE!
+echo   !C_KEY![D]!C_RST! !L_RUNTIME_SELECT_DOCKER!
+echo   !C_KEY![P]!C_RST! !L_RUNTIME_SELECT_PODMAN!
+:PROMPT_RUNTIME_CHOICE_LOOP
+set /p "RUNTIME_MENU_CHOICE=!L_RUNTIME_SELECT_PROMPT! "
+if "!RUNTIME_MENU_CHOICE!"=="" set "RUNTIME_MENU_CHOICE=docker"
+if /i "!RUNTIME_MENU_CHOICE!"=="D" set "RUNTIME_MENU_CHOICE=docker" & exit /b 0
+if /i "!RUNTIME_MENU_CHOICE!"=="DOCKER" set "RUNTIME_MENU_CHOICE=docker" & exit /b 0
+if /i "!RUNTIME_MENU_CHOICE!"=="P" set "RUNTIME_MENU_CHOICE=podman" & exit /b 0
+if /i "!RUNTIME_MENU_CHOICE!"=="PODMAN" set "RUNTIME_MENU_CHOICE=podman" & exit /b 0
+echo !L_RUNTIME_SELECT_INVALID!
+goto PROMPT_RUNTIME_CHOICE_LOOP
 
 :TRY_RUNTIME_DOCKER
 set "RUNTIME_ERROR_MESSAGE_1="
@@ -2310,4 +2363,4 @@ if not exist "custom_files\%~1\etc\uci-defaults" mkdir "custom_files\%~1\etc\uci
 set "B64=IyEvYmluL3NoCiMgRml4IFNTSCBwZXJtaXNzaW9ucwpbIC1kIC9ldGMvZHJvcGJlYXIgXSAmJiBjaG1vZCA3MDAgL2V0Yy9kcm9wYmVhcgpbIC1mIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzIF0gJiYgY2htb2QgNjAwIC9ldGMvZHJvcGJlYXIvYXV0aG9yaXplZF9rZXlzCiMgRml4IFNoYWRvdwpbIC1mIC9ldGMvc2hhZG93IF0gJiYgY2htb2QgNjAwIC9ldGMvc2hhZG93CiMgRml4IHJvb3QgU1NIIGtleXMKWyAtZCAvcm9vdC8uc3NoIF0gJiYgY2htb2QgNzAwIC9yb290Ly5zc2gKWyAtZiAvcm9vdC8uc3NoL2lkX3JzYSBdICYmIGNobW9kIDYwMCAvcm9vdC8uc3NoL2lkX3JzYQpleGl0IDAK"
 powershell -Command "[IO.File]::WriteAllBytes('custom_files\%~1\etc\uci-defaults\99-permissions.sh', [Convert]::FromBase64String('%B64%'))" >nul 2>&1
 exit /b
-:: checksum:MD5=d30ef6ee4b239e237d5150a5d6123340
+:: checksum:MD5=53c52e8646a93b6114a7b6723af8c196
