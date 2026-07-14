@@ -2,12 +2,12 @@
 # file: _packer.sh
 set -o pipefail
 
-PACKER_VER="2.6"
+PACKER_VER="2.7MT"
 # Multi-threaded Base64 Resource Storage (checksum). Версия: PACKER_VER
 bash ./_Builder.sh check-all
 echo -e "${C_LBL}========================================${C_RST}"
 if [ -z "${ROUTERFW_TEST_MODE:-}" ]; then
-    read -p "Press Enter to start packing (v${PACKER_VER} SH MT)..."
+    read -p "Press Enter to start packing (v${PACKER_VER} SH)..."
 fi
 # Гарантируем работу в папке скрипта
 cd "$(dirname "$0")"
@@ -22,7 +22,7 @@ if [ -z "${ROUTERFW_TEST_MODE:-}" ]; then
     clear
 fi
 echo -e "${C_LBL}========================================${C_RST}"
-echo -e "  OpenWrt Packer (v${PACKER_VER} MT Linux)"
+echo -e "  OpenWrt Packer (v${PACKER_VER} Linux)"
 echo -e "${C_LBL}========================================${C_RST}"
 echo ""
 
@@ -397,5 +397,5 @@ tar -czf "$ARCHIVE_NAME" "$NEW_UNPACKER" || {
 echo -e "${C_OK}========================================${C_RST}"
 echo -e "  Файл обновлен: $NEW_UNPACKER"
 echo -e "  Архив создан:  $ARCHIVE_NAME"
-echo -e "  ГОТОВО (v${PACKER_VER} SH MT)"
+echo -e "  ГОТОВО (v${PACKER_VER} SH)"
 echo -e "${C_OK}========================================${C_RST}"

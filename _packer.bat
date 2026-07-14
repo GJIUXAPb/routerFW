@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-set "PACKER_VER=2.5"
+set "PACKER_VER=2.7MT"
 cls
 chcp 65001 >nul
 
@@ -22,7 +22,7 @@ if defined ROUTERFW_TEST_MODE (
 
 if not defined ROUTERFW_TEST_MODE cls
 echo ========================================
-echo  OpenWrt Universal Packer (v%PACKER_VER% MT)
+echo  OpenWrt Universal Packer (v%PACKER_VER%)
 echo ========================================
 echo.
 

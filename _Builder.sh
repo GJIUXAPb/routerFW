@@ -146,7 +146,7 @@ fi
 if [ $ru_score -lt 5 ] && grep -qi microsoft /proc/version 2>/dev/null; then
     _win_locale=""
     if command -v powershell.exe >/dev/null 2>&1; then
-        _win_locale=$(powershell.exe -NoProfile -NonInteractive -Command '(Get-WinSystemLocale).Name' 2>/dev/null | tr -d '\r\n')
+        _win_locale=$(powershell.exe -NoProfile -NonInteractive -Command '(Get-WinSystemLocale).Name' </dev/null 2>/dev/null | tr -d '\r\n')
     fi
     if [[ "$_win_locale" == *"ru"* ]]; then
         ((ru_score+=5))
@@ -346,12 +346,12 @@ try_runtime_candidate() {
             RUNTIME_ERROR_MESSAGE_1="$L_ERR_DOCKER"
             RUNTIME_ERROR_MESSAGE_2="$L_ERR_DOCKER_MSG"
             DOCKER_WINDOWS_BRIDGE=0
-            if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+            if command -v docker >/dev/null 2>&1 && docker info </dev/null >/dev/null 2>&1; then
                 CONTAINER_CMD=(docker)
-                if docker compose version >/dev/null 2>&1; then
+                if docker compose version </dev/null >/dev/null 2>&1; then
                     COMPOSE_CMD=(docker compose)
                     COMPOSE_LABEL="docker compose"
-                elif command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
+                elif command -v docker-compose >/dev/null 2>&1 && docker-compose version </dev/null >/dev/null 2>&1; then
                     COMPOSE_CMD=(docker-compose)
                     COMPOSE_LABEL="docker-compose"
                 else
@@ -360,10 +360,10 @@ try_runtime_candidate() {
                     RUNTIME_ERROR_MESSAGE_3="$L_ERR_DOCKER_MSG"
                     return 1
                 fi
-            elif is_wsl_environment && command -v docker.exe >/dev/null 2>&1 && docker.exe info >/dev/null 2>&1; then
+            elif is_wsl_environment && command -v docker.exe >/dev/null 2>&1 && docker.exe info </dev/null >/dev/null 2>&1; then
                 CONTAINER_CMD=(docker.exe)
                 DOCKER_WINDOWS_BRIDGE=1
-                if docker.exe compose version >/dev/null 2>&1; then
+                if docker.exe compose version </dev/null >/dev/null 2>&1; then
                     COMPOSE_CMD=(docker.exe compose)
                     COMPOSE_LABEL="docker.exe compose"
                 else
@@ -383,12 +383,20 @@ try_runtime_candidate() {
             RUNTIME_ERROR_MESSAGE_1="$L_ERR_PODMAN"
             RUNTIME_ERROR_MESSAGE_2="$L_ERR_PODMAN_MSG"
             DOCKER_WINDOWS_BRIDGE=0
-            command -v podman >/dev/null 2>&1 || return 1
-            if ! podman info >/dev/null 2>&1; then
-                if command -v podman-machine >/dev/null 2>&1; then
-                    PODMAN_MACHINE_HINT=$(podman machine list 2>/dev/null | tr -d '\r' | grep -i "Currently stopped" | head -1)
-                elif podman machine list >/dev/null 2>&1; then
-                    PODMAN_MACHINE_HINT=$(podman machine list 2>/dev/null | tr -d '\r' | grep -i "Currently stopped" | head -1)
+            local podman_cmd=()
+            if command -v podman >/dev/null 2>&1; then
+                podman_cmd=(podman)
+            elif is_wsl_environment && command -v podman.exe >/dev/null 2>&1; then
+                podman_cmd=(podman.exe)
+                DOCKER_WINDOWS_BRIDGE=1
+            else
+                return 1
+            fi
+            if ! "${podman_cmd[@]}" info </dev/null >/dev/null 2>&1; then
+                if command -v "${podman_cmd[0]}-machine" >/dev/null 2>&1; then
+                    PODMAN_MACHINE_HINT=$("${podman_cmd[0]}-machine" list </dev/null 2>/dev/null | tr -d '\r' | grep -i "Currently stopped" | head -1)
+                elif "${podman_cmd[@]}" machine list </dev/null >/dev/null 2>&1; then
+                    PODMAN_MACHINE_HINT=$("${podman_cmd[@]}" machine list </dev/null 2>/dev/null | tr -d '\r' | grep -i "Currently stopped" | head -1)
                 fi
                 if [ -n "$PODMAN_MACHINE_HINT" ]; then
                     RUNTIME_ERROR_MESSAGE_1="$L_ERR_PODMAN_MACHINE_STOPPED"
@@ -398,13 +406,16 @@ try_runtime_candidate() {
             fi
             CONTAINER_RUNTIME="podman"
             CONTAINER_LABEL="podman"
-            CONTAINER_CMD=(podman)
-            if command -v podman-compose >/dev/null 2>&1 && podman-compose --version >/dev/null 2>&1; then
+            CONTAINER_CMD=("${podman_cmd[@]}")
+            if [ "${podman_cmd[0]}" = "podman.exe" ] && podman.exe compose version </dev/null >/dev/null 2>&1; then
+                COMPOSE_CMD=(podman.exe compose)
+                COMPOSE_LABEL="podman.exe compose"
+            elif command -v podman-compose >/dev/null 2>&1 && podman-compose --version </dev/null >/dev/null 2>&1; then
                 COMPOSE_CMD=(podman-compose)
                 COMPOSE_LABEL="podman-compose"
-            elif podman compose version >/dev/null 2>&1; then
-                COMPOSE_CMD=(podman compose)
-                COMPOSE_LABEL="podman compose"
+            elif "${podman_cmd[@]}" compose version </dev/null >/dev/null 2>&1; then
+                COMPOSE_CMD=("${podman_cmd[@]}" compose)
+                COMPOSE_LABEL="${podman_cmd[0]} compose"
             else
                 RUNTIME_ERROR_MESSAGE_1="$L_ERR_COMPOSE_PROVIDER_MISSING"
                 RUNTIME_ERROR_MESSAGE_2="$L_ERR_COMPOSE_PROVIDER_MSG"
@@ -2259,4 +2270,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=19da480d258881e34c1c72dd62480f77
+# checksum:MD5=bb50291c8e0991ecfcfd5fca931fc672

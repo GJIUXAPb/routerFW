@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 chcp 65001 >nul
 
 :: =========================================================
-::  Unpacker (Smart Edition v2.5)
+::  Unpacker (Smart Edition v2.7MT)
 :: =========================================================
 
 echo [UNPACKER] Resource check...
