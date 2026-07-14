@@ -304,6 +304,18 @@ jobs:
             "
           '
           test -f firmware_output/sourcebuilder/docker-smoke/result.txt
+
+          ib_glibc="$(SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/imagebuilder/docker-smoke HOST_PKGS_DIR=./custom_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full docker compose -f system/docker-compose.yaml -p docker-smoke-ib run --rm builder-openwrt getconf GNU_LIBC_VERSION | awk '/^glibc /{print $2; exit}')"
+          src_glibc="$(SELECTED_CONF=tplink_tl_wr1043nd_v2_24105_ow_full.conf HOST_OUTPUT_DIR=./firmware_output/sourcebuilder/docker-smoke HOST_PKGS_DIR=./src_packages/tplink_tl_wr1043nd_v2_24105_ow_full HOST_PATCHES_DIR=./custom_patches/tplink_tl_wr1043nd_v2_24105_ow_full HOST_FILES_DIR=./custom_files/tplink_tl_wr1043nd_v2_24105_ow_full docker compose -f system/docker-compose-src.yaml -p docker-smoke-src run --rm builder-src-openwrt getconf GNU_LIBC_VERSION | awk '/^glibc /{print $2; exit}')"
+          if [ -z "$ib_glibc" ] || [ -z "$src_glibc" ]; then
+            echo "Failed to read builder glibc versions: image='$ib_glibc' source='$src_glibc'"
+            exit 1
+          fi
+          if [ "$(printf '%s\n%s\n' "$ib_glibc" "$src_glibc" | sort -V | tail -1)" != "$ib_glibc" ]; then
+            echo "Image Builder glibc $ib_glibc is older than Source Builder glibc $src_glibc"
+            exit 1
+          fi
+          echo "Modern builder glibc invariant OK: image=$ib_glibc source=$src_glibc"
         shell: bash
 
   podman-smoke:

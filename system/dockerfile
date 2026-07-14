@@ -1,10 +1,10 @@
-# file system/dockerfile v1.2
-FROM ubuntu:22.04
+# file system/dockerfile v1.3
+FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
-	mc build-essential git libncurses5-dev zlib1g-dev subversion mercurial autoconf libtool libssl-dev libglib2.0-dev libgmp-dev \
-	libmpc-dev libmpfr-dev texinfo gawk python3-distutils python3-setuptools rsync unzip wget file zstd \
+	mc build-essential git libncurses-dev zlib1g-dev subversion mercurial autoconf libtool libssl-dev libglib2.0-dev libgmp-dev \
+	libmpc-dev libmpfr-dev texinfo gawk python3 python3-setuptools rsync unzip wget file zstd xz-utils ca-certificates \
 	&& rm -rf /var/lib/apt/lists/*
 COPY system/openssl.cnf /etc/ssl/openssl.cnf
 WORKDIR /builder_workspace
-# checksum:MD5=d4476ad28bb7fc5cda39c5d43e83fae1
+# checksum:MD5=f965c363f5e3d87f689937445fa0b341
