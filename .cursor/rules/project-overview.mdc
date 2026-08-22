@@ -138,7 +138,7 @@ load_lang() {
         printf -v "$key" '%s' "$val"
     done < "$1"
 }
-LANG_FILE="system/lang/${SYS_LANG,,}.env"
+LANG_FILE="system/lang/$(to_lower "$SYS_LANG").env"
 [ ! -f "$LANG_FILE" ] && LANG_FILE="system/lang/en.env"
 load_lang "$LANG_FILE"
 ```

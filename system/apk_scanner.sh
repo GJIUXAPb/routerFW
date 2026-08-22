@@ -51,8 +51,9 @@ C_WHT='\033[1;37m'
 C_RST='\033[0m'
 
 # --- ЯЗЫК (автоопределение) ---
+to_upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
 IS_RU=false
-[ "${APK_SCANNER_LANG^^}" == "RU" ] && IS_RU=true
+[ "$(to_upper "${APK_SCANNER_LANG:-}")" == "RU" ] && IS_RU=true
 
 # Словарь
 if [ "$IS_RU" = true ]; then
@@ -274,7 +275,7 @@ printf "${T_DONE}\n" "$SCANNED" "$RENAMED" "$WARNINGS"
 echo -e "${C_CYAN}==========================================================${C_RST}"
 
 # Язык для паузы (передаётся от билдера)
-if [ "${APK_SCANNER_LANG^^}" == "RU" ]; then
+if [ "$(to_upper "${APK_SCANNER_LANG:-}")" == "RU" ]; then
     echo -ne "\n Нажмите Enter..."
 else
     echo -ne "\n Press Enter..."
@@ -285,4 +286,4 @@ if [ "$WARNINGS" -gt 0 ]; then
     exit 1
 fi
 exit 0
-# checksum:MD5=7e4d0dd7d2abb884ebe5bac0c30d9e4e
+# checksum:MD5=55a88cc43f0eeedfe8f879a63d377d36

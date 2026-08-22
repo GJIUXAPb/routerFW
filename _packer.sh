@@ -124,8 +124,7 @@ decode_file() {
 
     if [ -f "$target" ]; then
         if [ -n "$hash" ] && [ "$hash" != "unknown" ]; then
-            actual_hash=$(md5sum "$target" | cut -d' ' -f1)
-            actual_hash="${actual_hash,,}"
+            actual_hash=$(md5sum "$target" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
             if [ "$actual_hash" = "$hash" ]; then
                 return 0
             fi
@@ -155,8 +154,7 @@ decode_file() {
     fi
 
     if [ -n "$hash" ] && [ "$hash" != "unknown" ]; then
-        actual_hash=$(md5sum "$tmp" | cut -d' ' -f1)
-        actual_hash="${actual_hash,,}"
+        actual_hash=$(md5sum "$tmp" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
         if [ "$actual_hash" != "$hash" ]; then
             rm -f "$tmp"
             echo "[ERROR] Checksum mismatch: $target"
@@ -234,12 +232,11 @@ process_file() {
 
     # Считаем хеш (для staged версии без checksum строки)
     local hash
-    if ! hash=$(md5sum < "$staged" | cut -d' ' -f1); then
+    if ! hash=$(md5sum < "$staged" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]'); then
         rm -f "$staged"
         echo -e "${C_ERR}   [ERROR] Failed to hash '$file'.${C_RST}" >&2
         return 1
     fi
-    hash="${hash,,}"
 
     local prefix
     prefix=$(checksum_comment_prefix "$file")
@@ -253,12 +250,11 @@ process_file() {
 
     # Распаковщик проверяет целостность фактически встроенного payload.
     local payload_hash
-    if ! payload_hash=$(md5sum < "$staged" | cut -d' ' -f1); then
+    if ! payload_hash=$(md5sum < "$staged" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]'); then
         rm -f "$staged"
         echo -e "${C_ERR}   [ERROR] Failed to hash payload for '$file'.${C_RST}" >&2
         return 1
     fi
-    payload_hash="${payload_hash,,}"
     if ! echo "$payload_hash" > "$hash_out"; then
         rm -f "$staged"
         echo -e "${C_ERR}   [ERROR] Failed to write payload hash for '$file'.${C_RST}" >&2
@@ -268,7 +264,7 @@ process_file() {
     {
         echo ""
         echo "# BEGIN_B64_ $file"
-        base64 "$staged"
+        base64 < "$staged"
         echo "# END_B64_ $file"
     } > "$out"
     local rc=$?

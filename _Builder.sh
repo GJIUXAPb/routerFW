@@ -40,6 +40,10 @@ C_OK="${ESC}[92m"    # Bright Green
 C_ERR="${ESC}[91m"   # Bright Red
 C_RST="${ESC}[0m"    # Reset
 
+# Bash 3.2 (macOS) совместимость: ${var,,} и ${var^^} недоступны
+to_lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+to_upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+
 # === CLI: lang/runtime flags in any position; strip them and keep effective args ===
 effective_1="" effective_2="" effective_3="" effective_4="" effective_5="" effective_6="" effective_7="" effective_8="" effective_9=""
 _cli_args=("" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9")
@@ -53,16 +57,16 @@ while [ $_i -le 9 ]; do
     [ -z "$_arg" ] && { ((_i++)); continue; }
     if [[ "$_arg" == --lang=* ]] && [ ${#_arg} -ge 9 ]; then
         _val="${_arg:7}"
-        if [[ "${_val^^}" == "RU" ]]; then FORCE_LANG="RU"; ((_i++)); continue; fi
-        if [[ "${_val^^}" == "EN" ]]; then FORCE_LANG="EN"; ((_i++)); continue; fi
+        if [[ "$(to_upper "$_val")" == "RU" ]]; then FORCE_LANG="RU"; ((_i++)); continue; fi
+        if [[ "$(to_upper "$_val")" == "EN" ]]; then FORCE_LANG="EN"; ((_i++)); continue; fi
         CLI_LANG_ERROR=1
         ((_i++))
         continue
     fi
     if [[ "$_arg" == --lang || "$_arg" == -l ]]; then
         _next="${_cli_args[$((_i+1))]}"
-        if [[ -n "$_next" && "${_next^^}" == "RU" ]]; then FORCE_LANG="RU"; ((_i+=2)); continue; fi
-        if [[ -n "$_next" && "${_next^^}" == "EN" ]]; then FORCE_LANG="EN"; ((_i+=2)); continue; fi
+        if [[ -n "$_next" && "$(to_upper "$_next")" == "RU" ]]; then FORCE_LANG="RU"; ((_i+=2)); continue; fi
+        if [[ -n "$_next" && "$(to_upper "$_next")" == "EN" ]]; then FORCE_LANG="EN"; ((_i+=2)); continue; fi
         CLI_LANG_ERROR=1
         [ -n "$_next" ] && ((_i++))
         ((_i++))
@@ -71,7 +75,7 @@ while [ $_i -le 9 ]; do
     if [[ "$_arg" == --runtime=* ]] && [ ${#_arg} -ge 11 ]; then
         _val="${_arg:10}"
         if [[ "$_val" =~ ^(auto|docker|podman)$ ]]; then
-            RUNTIME_OVERRIDE="${_val,,}"
+            RUNTIME_OVERRIDE="$(to_lower "$_val")"
             RUNTIME_EXPLICIT=1
         else
             CLI_RUNTIME_ERROR=1
@@ -82,7 +86,7 @@ while [ $_i -le 9 ]; do
     if [[ "$_arg" == --runtime || "$_arg" == -r ]]; then
         _next="${_cli_args[$((_i+1))]}"
         if [[ -n "$_next" && "$_next" =~ ^(auto|docker|podman)$ ]]; then
-            RUNTIME_OVERRIDE="${_next,,}"
+            RUNTIME_OVERRIDE="$(to_lower "$_next")"
             RUNTIME_EXPLICIT=1
             ((_i+=2))
             continue
@@ -181,7 +185,7 @@ load_lang() {
     done < "$1"
 }
 
-LANG_FILE="system/lang/${SYS_LANG,,}.env"
+LANG_FILE="system/lang/$(to_lower "$SYS_LANG").env"
 [ ! -f "$LANG_FILE" ] && LANG_FILE="system/lang/en.env"
 load_lang "$LANG_FILE"
 [ -n "${CLI_LANG_ERROR:-}" ] && echo -e "$L_CLI_ERR_LANG" && exit 1
@@ -223,7 +227,7 @@ PODMAN_MACHINE_HINT=""
 RUNTIME_ERROR_MESSAGE_1=""
 RUNTIME_ERROR_MESSAGE_2=""
 RUNTIME_ERROR_MESSAGE_3=""
-ROUTERFW_RUNTIME="${RUNTIME_OVERRIDE,,}"
+ROUTERFW_RUNTIME="$(to_lower "$RUNTIME_OVERRIDE")"
 RUNTIME_READY=0
 DOCKER_CONFIG_CREATED=0
 DOCKER_CONFIG_DIR=""
@@ -454,7 +458,7 @@ prompt_runtime_choice() {
     echo -e "  ${C_KEY}[P]${C_RST} ${L_RUNTIME_SELECT_PODMAN:-Podman}"
     while true; do
         read -r -p "$(printf '%b ' "$prompt")" choice || choice="D"
-        case "${choice^^}" in
+        case "$(to_upper "$choice")" in
             ""|D|DOCKER) RUNTIME_MENU_CHOICE="docker"; return 0 ;;
             P|PODMAN) RUNTIME_MENU_CHOICE="podman"; return 0 ;;
             *) echo -e "${L_RUNTIME_SELECT_INVALID:-Invalid choice.}" ;;
@@ -586,13 +590,13 @@ fix_output_ownership() {
 }
 
 _runtime_cmd="$effective_1"
-case "${_runtime_cmd^^}" in
+case "$(to_upper "$_runtime_cmd")" in
     IB|IMAGE|SRC|SOURCE)
         _runtime_cmd="$effective_2"
         ;;
 esac
 RUNTIME_REQUIRED=1
-case "${_runtime_cmd^^}" in
+case "$(to_upper "$_runtime_cmd")" in
     HELP|-H|--HELP|STATE|S|CHECK-ALL|CHECK-CLEAR|CHECK|EDIT|E|WIZARD|W)
         RUNTIME_REQUIRED=0
         ;;
@@ -613,7 +617,10 @@ if [ "$RUNTIME_REQUIRED" -eq 1 ]; then
                 echo -e "${C_ERR}[TEST] python3 is required to parse ROUTERFW_TEST_COMPOSE_ARGS safely.${C_RST}"
                 exit 1
             fi
-            mapfile -d '' -t compose_test_args < <(
+            compose_test_args=()
+            while IFS= read -r -d '' _test_arg; do
+                compose_test_args+=("$_test_arg")
+            done < <(
                 ROUTERFW_TEST_COMPOSE_ARGS_PAYLOAD="$ROUTERFW_TEST_COMPOSE_ARGS" python3 -c '
 import os
 import shlex
@@ -642,14 +649,32 @@ for arg in shlex.split(os.environ.get("ROUTERFW_TEST_COMPOSE_ARGS_PAYLOAD", ""))
             DOCKER_CONFIG_CREATED=1
             _REAL_CFG="$HOME/.docker/config.json"
             if [ -f "$_REAL_CFG" ] && command -v python3 &>/dev/null; then
-                REAL_DOCKER_CONFIG="$_REAL_CFG" python3 -c "
-import json, sys
-import os
+                REAL_DOCKER_CONFIG="$_REAL_CFG" DOCKER_CONFIG_DIR="$DOCKER_CONFIG_DIR" python3 -c "
+import json, os, shutil, hashlib
 with open(os.environ['REAL_DOCKER_CONFIG']) as f:
     cfg = json.load(f)
 cfg.pop('credsStore', None)
 cfg.pop('credHelpers', None)
 cfg.pop('auths', None)
+docker_home = os.path.dirname(os.environ['REAL_DOCKER_CONFIG'])
+ctx = cfg.get('currentContext')
+if ctx:
+    ctx_hash = hashlib.sha256(ctx.encode()).hexdigest()
+    meta_src = os.path.join(docker_home, 'contexts', 'meta', ctx_hash, 'meta.json')
+    if os.path.isfile(meta_src):
+        meta_dst = os.path.join(
+            os.environ['DOCKER_CONFIG_DIR'],
+            'contexts', 'meta', ctx_hash
+        )
+        os.makedirs(meta_dst, exist_ok=True)
+        shutil.copyfile(meta_src, os.path.join(meta_dst, 'meta.json'))
+    else:
+        cfg.pop('currentContext', None)
+plugins_dir = os.path.join(docker_home, 'cli-plugins')
+if os.path.isdir(plugins_dir):
+    extra = cfg.setdefault('cliPluginsExtraDirs', [])
+    if plugins_dir not in extra:
+        extra.append(plugins_dir)
 print(json.dumps(cfg))
 " > "$DOCKER_CONFIG_DIR/config.json" 2>/dev/null || echo '{}' > "$DOCKER_CONFIG_DIR/config.json"
             else
@@ -907,8 +932,8 @@ run_build_all() {
     echo -e "\n${C_VAL}${L_PARALLEL_BUILDS_START}${C_RST} ${C_LBL}$LOG_DIR${C_RST}\n"
 
     local pids=()
-    declare -A pid_map
-    declare -A start_time_map
+    local pid_ids=()
+    local pid_starts=()
     local max_jobs="${ROUTERFW_JOBS:-6}"
     if ! [[ "$max_jobs" =~ ^[1-9][0-9]*$ ]]; then
         echo -e "${C_ERR}[ERROR] Invalid ROUTERFW_JOBS: ${max_jobs}${C_RST}"
@@ -916,32 +941,39 @@ run_build_all() {
     fi
 
     reap_finished_builds() {
-        local keep=()
-        local pid
-        for pid in "${pids[@]}"; do
+        local keep_pids=()
+        local keep_ids=()
+        local keep_starts=()
+        local pid idx
+        for idx in "${!pids[@]}"; do
+            pid="${pids[$idx]}"
             if kill -0 "$pid" 2>/dev/null; then
-                keep+=("$pid")
+                keep_pids+=("$pid")
+                keep_ids+=("${pid_ids[$idx]}")
+                keep_starts+=("${pid_starts[$idx]}")
                 continue
             fi
 
             local end_ts start_ts duration dm ds time_str
             end_ts=$(date +%s)
-            start_ts=${start_time_map[$pid]}
+            start_ts=${pid_starts[$idx]}
             duration=$((end_ts - start_ts))
             dm=$((duration / 60))
             ds=$((duration % 60))
             time_str="${dm}m ${ds}s"
 
             if wait "$pid"; then
-                success_profiles+=("${pid_map[$pid]}")
-                printf "${C_OK}${L_LOG_OK_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
+                success_profiles+=("${pid_ids[$idx]}")
+                printf "${C_OK}${L_LOG_OK_IN}${C_RST}\n" "${pid_ids[$idx]}" "${time_str}"
             else
                 overall_status=1
-                failed_profiles+=("${pid_map[$pid]}")
-                printf "${C_ERR}${L_LOG_FAIL_IN}${C_RST}\n" "${pid_map[$pid]}" "${time_str}"
+                failed_profiles+=("${pid_ids[$idx]}")
+                printf "${C_ERR}${L_LOG_FAIL_IN}${C_RST}\n" "${pid_ids[$idx]}" "${time_str}"
             fi
         done
-        pids=("${keep[@]}")
+        pids=("${keep_pids[@]}")
+        pid_ids=("${keep_ids[@]}")
+        pid_starts=("${keep_starts[@]}")
     }
 
     printf "    %-65s | %s\n" "${C_GRY}${L_LOG_HEAD_PROF}" "${L_LOG_HEAD_FILE}${C_RST}"
@@ -961,8 +993,8 @@ run_build_all() {
         build_routine "$p" > "$log_file" 2>&1 &
         local pid=$!
         pids+=("$pid")
-        pid_map[$pid]="$p_id"
-        start_time_map[$pid]=$(date +%s)
+        pid_ids+=("$p_id")
+        pid_starts+=("$(date +%s)")
         sleep 1
     done
 
@@ -975,8 +1007,9 @@ run_build_all() {
         reap_finished_builds
         if [ ${#pids[@]} -gt 0 ]; then
             local running_names=""
-            for pid in "${pids[@]}"; do
-                running_names+="${pid_map[$pid]} "
+            local r_idx
+            for r_idx in "${!pids[@]}"; do
+                running_names+="${pid_ids[$r_idx]} "
             done
             [ ${#running_names} -gt 60 ] && running_names="${running_names:0:57}..."
             printf "\r${C_LBL}[%s]${C_RST} ${L_WAITING_FOR_BUILDS} (%d left): ${C_VAL}%-60s${C_RST}" "${spinner[$spin_idx]}" "${#pids[@]}" "$running_names"
@@ -1013,8 +1046,7 @@ add_checksum_to_file() {
     
     # 1. Пытаемся извлечь старый хэш (если есть)
     local old_hash
-    old_hash=$(grep -oE "checksum:MD5=[0-9a-fA-F]{32}" "$file" 2>/dev/null | tail -1 | cut -d= -f2)
-    old_hash="${old_hash,,}" # приводим к нижнему регистру
+    old_hash=$(grep -oE "checksum:MD5=[0-9a-fA-F]{32}" "$file" 2>/dev/null | tail -1 | cut -d= -f2 | tr '[:upper:]' '[:lower:]') # приводим к нижнему регистру
 
     local staged
     staged=$(mktemp)
@@ -1046,8 +1078,7 @@ add_checksum_to_file() {
     }' "$file" > "$staged"
 
     local hash
-    hash=$(md5sum < "$staged" | cut -d' ' -f1)
-    hash="${hash,,}"
+    hash=$(md5sum < "$staged" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
 
     # 2. Сравнение
     local status_msg=""
@@ -1482,7 +1513,7 @@ cleanup_wizard_cli() {
         return 1
     fi
     local target_id="ALL"
-    if [ -n "$t_choice" ] && [[ "${t_choice^^}" != "A" ]]; then
+    if [ -n "$t_choice" ] && [[ "$(to_upper "$t_choice")" != "A" ]]; then
         if [[ "$t_choice" =~ ^[0-9]+$ ]] && [ -n "${profiles[$t_choice]}" ]; then
             target_id="${profiles[$t_choice]%.conf}"
             target_id=$(echo "$target_id" | tr -d '\r')
@@ -1683,7 +1714,7 @@ p8="$effective_8"
 p9="$effective_9"
 if [ -n "$p1" ]; then
     mode_shift=0
-    case "${p1^^}" in
+    case "$(to_upper "$p1")" in
         IB|IMAGE)   BUILD_MODE="IMAGE";  mode_shift=1 ;;
         SRC|SOURCE) BUILD_MODE="SOURCE"; mode_shift=1 ;;
     esac
@@ -1692,7 +1723,7 @@ if [ -n "$p1" ]; then
     else
         c1="$p1"; c2="$p2"; c3="$p3"
     fi
-    _cmd="${c1^^}"
+    _cmd="$(to_upper "$c1")"
     case "$_cmd" in
         BUILD|B)          CLI_CMD="BUILD";     CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
         BUILD-ALL|BUILD_ALL|ALL|A) CLI_CMD="BUILD_ALL"; CLI_ARG1="$c2"; CLI_ARG2="$c3" ;;
@@ -1736,7 +1767,7 @@ resolve_profile_by_id() {
     for ((i=1; i<=count; i++)); do
         local pbase="${profiles[$i]%.conf}"
         pbase=$(echo "$pbase" | tr -d '\r')
-        if [[ "${pbase^^}" == "${arg_trim^^}" ]]; then
+        if [[ "$(to_upper "$pbase")" == "$(to_upper "$arg_trim")" ]]; then
             SELECTED_CONF="${profiles[$i]}"
             validate_selected_conf "$SELECTED_CONF" || {
                 SELECTED_CONF=""
@@ -2087,7 +2118,7 @@ while true; do
     echo ""
 
     read -p "${C_LBL}${L_CHOICE}${C_VAL} ⚡ ${C_RST}" choice
-    choice="${choice^^}"
+    choice="$(to_upper "$choice")"
 
     case "$choice" in
         0) 
@@ -2271,4 +2302,4 @@ while true; do
             ;;
     esac
 done
-# checksum:MD5=c58004c493feedd7376f557fe2ccaf9d
+# checksum:MD5=7ef1fee10a00c19cc937630677478bb2

@@ -34,61 +34,61 @@ elif [ -n "$SYS_LANG" ]; then Lang="$SYS_LANG"
 else Lang="$DetectedLang"; fi
 
 # --- СЛОВАРЬ ---
-declare -A L
+# Bash 3.2 (macOS) совместимость: вместо declare -A используем обычные переменные L_*
 if [ "$Lang" == "RU" ]; then
-    L[HeaderTitle]="UNIVERSAL Profile Creator (v2.30 UX++)"
-    L[StructureLabel]="СТРУКТУРА ТИПОВОГО ИМЕНИ ПРОШИВКИ:"
-    L[PathLabel]="ПУТЬ: "
-    L[PromptSelect]="Выберите номер"
-    L[PromptBack]="Назад"
-    L[PromptExit]="Выход"
-    L[ErrInput]="Ошибка: Некорректный ввод."
-    L[Step1_Title]="Шаг 1: Выбор источника прошивки"
-    L[Step1_OW]="OpenWrt (Официальная, стабильная)"
-    L[Step1_IW]="ImmortalWrt (Больше пакетов, оптимизации)"
-    L[Step2_Title]="Шаг 2: Выбор релиза"
-    L[Step2_Fetch]="Получение списка..."
-    L[Step3_Title]="Шаг 3: Выбор Target"
-    L[Step4_Title]="Шаг 4: Выбор Subtarget"
-    L[Step5_Title]="Шаг 5: Выбор модели устройства"
-    L[Step5_Err]="Ошибка загрузки profiles.json."
-    L[Step6_Title]="Шаг 6: Финализация"
-    L[Step6_ErrIB]="ОШИБКА: ImageBuilder не найден!"
-    L[Step6_Mirror]="Выберите источник загрузки IB:"
-    L[Step6_DefPkgs]="Пакеты по умолчанию:"
-    L[Step6_AddPkgs]="Дополнительные пакеты [luci] (Z - Назад)"
-    L[Step6_FileName]="Введите имя файла конфига (без .conf)"
-    L[Step6_Exists]="[!] Файл уже существует!"
-    L[Step6_Overwrite]="Перезаписать? (y/n) [n]"
-    L[Step6_Saved]="Конфиг успешно сохранен:"
-    L[FinalAction]="Нажмите Enter для создания нового профиля или '0' для выхода..."
+    L_HeaderTitle="UNIVERSAL Profile Creator (v2.30 UX++)"
+    L_StructureLabel="СТРУКТУРА ТИПОВОГО ИМЕНИ ПРОШИВКИ:"
+    L_PathLabel="ПУТЬ: "
+    L_PromptSelect="Выберите номер"
+    L_PromptBack="Назад"
+    L_PromptExit="Выход"
+    L_ErrInput="Ошибка: Некорректный ввод."
+    L_Step1_Title="Шаг 1: Выбор источника прошивки"
+    L_Step1_OW="OpenWrt (Официальная, стабильная)"
+    L_Step1_IW="ImmortalWrt (Больше пакетов, оптимизации)"
+    L_Step2_Title="Шаг 2: Выбор релиза"
+    L_Step2_Fetch="Получение списка..."
+    L_Step3_Title="Шаг 3: Выбор Target"
+    L_Step4_Title="Шаг 4: Выбор Subtarget"
+    L_Step5_Title="Шаг 5: Выбор модели устройства"
+    L_Step5_Err="Ошибка загрузки profiles.json."
+    L_Step6_Title="Шаг 6: Финализация"
+    L_Step6_ErrIB="ОШИБКА: ImageBuilder не найден!"
+    L_Step6_Mirror="Выберите источник загрузки IB:"
+    L_Step6_DefPkgs="Пакеты по умолчанию:"
+    L_Step6_AddPkgs="Дополнительные пакеты [luci] (Z - Назад)"
+    L_Step6_FileName="Введите имя файла конфига (без .conf)"
+    L_Step6_Exists="[!] Файл уже существует!"
+    L_Step6_Overwrite="Перезаписать? (y/n) [n]"
+    L_Step6_Saved="Конфиг успешно сохранен:"
+    L_FinalAction="Нажмите Enter для создания нового профиля или '0' для выхода..."
 else
-    L[HeaderTitle]="UNIVERSAL Profile Creator (v2.30 UX+)"
-    L[StructureLabel]="TYPICAL FIRMWARE FILENAME STRUCTURE:"
-    L[PathLabel]="PATH: "
-    L[PromptSelect]="Select number"
-    L[PromptBack]="Back"
-    L[PromptExit]="Exit"
-    L[ErrInput]="Error: Invalid input."
-    L[Step1_Title]="Step 1: Firmware Source Selection"
-    L[Step1_OW]="OpenWrt (Official, stable)"
-    L[Step1_IW]="ImmortalWrt (More packages, optimized)"
-    L[Step2_Title]="Step 2: Release Selection"
-    L[Step2_Fetch]="Fetching list..."
-    L[Step3_Title]="Step 3: Target Selection"
-    L[Step4_Title]="Step 4: Subtarget Selection"
-    L[Step5_Title]="Step 5: Device Model Selection"
-    L[Step5_Err]="Error loading profiles.json."
-    L[Step6_Title]="Step 6: Finalization"
-    L[Step6_ErrIB]="ERROR: ImageBuilder not found!"
-    L[Step6_Mirror]="Select IB download source:"
-    L[Step6_DefPkgs]="Default packages:"
-    L[Step6_AddPkgs]="Additional packages [luci] (Z - Back)"
-    L[Step6_FileName]="Enter config filename (without .conf)"
-    L[Step6_Exists]="[!] File already exists!"
-    L[Step6_Overwrite]="Overwrite? (y/n) [n]"
-    L[Step6_Saved]="Config successfully saved:"
-    L[FinalAction]="Press Enter for new profile or '0' to exit..."
+    L_HeaderTitle="UNIVERSAL Profile Creator (v2.30 UX+)"
+    L_StructureLabel="TYPICAL FIRMWARE FILENAME STRUCTURE:"
+    L_PathLabel="PATH: "
+    L_PromptSelect="Select number"
+    L_PromptBack="Back"
+    L_PromptExit="Exit"
+    L_ErrInput="Error: Invalid input."
+    L_Step1_Title="Step 1: Firmware Source Selection"
+    L_Step1_OW="OpenWrt (Official, stable)"
+    L_Step1_IW="ImmortalWrt (More packages, optimized)"
+    L_Step2_Title="Step 2: Release Selection"
+    L_Step2_Fetch="Fetching list..."
+    L_Step3_Title="Step 3: Target Selection"
+    L_Step4_Title="Step 4: Subtarget Selection"
+    L_Step5_Title="Step 5: Device Model Selection"
+    L_Step5_Err="Error loading profiles.json."
+    L_Step6_Title="Step 6: Finalization"
+    L_Step6_ErrIB="ERROR: ImageBuilder not found!"
+    L_Step6_Mirror="Select IB download source:"
+    L_Step6_DefPkgs="Default packages:"
+    L_Step6_AddPkgs="Additional packages [luci] (Z - Back)"
+    L_Step6_FileName="Enter config filename (without .conf)"
+    L_Step6_Exists="[!] File already exists!"
+    L_Step6_Overwrite="Overwrite? (y/n) [n]"
+    L_Step6_Saved="Config successfully saved:"
+    L_FinalAction="Press Enter for new profile or '0' to exit..."
 fi
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
@@ -123,11 +123,11 @@ out_part() {
 show_header() {
     clear
     echo -e "${C_CYAN}==========================================================================${C_RST}"
-    echo -e "  ${L[HeaderTitle]} [$Lang]"
+    echo -e "  ${L_HeaderTitle} [$Lang]"
     echo -e "  $1"
     echo -e "${C_CYAN}==========================================================================${C_RST}"
     # Визуализация структуры имени
-    echo -e "  ${C_GRY}${L[StructureLabel]}${C_RST}"
+    echo -e "  ${C_GRY}${L_StructureLabel}${C_RST}"
     echo -ne "  "
     out_part "$SOURCE" "source" 1; echo -ne "${C_GRY}-${C_RST}"
     out_part "$TARGET" "target" 3; echo -ne "${C_GRY}-${C_RST}"
@@ -136,7 +136,7 @@ show_header() {
 
     # Хлебные крошки
     if [ -n "$SOURCE" ]; then
-        echo -ne "  ${C_GRY}${L[PathLabel]}${C_RST}"
+        echo -ne "  ${C_GRY}${L_PathLabel}${C_RST}"
         local crumbs=("$SOURCE" "$RELEASE" "$TARGET" "$SUBTARGET" "$MODEL_NAME")
         local first=1
         for c in "${crumbs[@]}"; do
@@ -154,9 +154,9 @@ read_selection() {
     local max=$1
     local allow_back=${2:-true}
     while true; do
-        echo -ne "\n${C_YEL}${L[PromptSelect]} (1-$max)"
-        [ "$allow_back" == "true" ] && echo -ne ", [Z] ${L[PromptBack]}"
-        echo -ne ", [0] ${L[PromptExit]}: ${C_RST}"
+        echo -ne "\n${C_YEL}${L_PromptSelect} (1-$max)"
+        [ "$allow_back" == "true" ] && echo -ne ", [Z] ${L_PromptBack}"
+        echo -ne ", [0] ${L_PromptExit}: ${C_RST}"
         read -r input_val
         input_val=$(echo "$input_val" | xargs)
         [ "$input_val" == "0" ] && exit 0
@@ -165,7 +165,7 @@ read_selection() {
         if [[ "$input_val" =~ ^[0-9]+$ ]] && [ "$input_val" -ge 1 ] && [ "$input_val" -le "$max" ]; then
             return "$input_val"
         fi
-        echo -e "${C_RED}${L[ErrInput]}${C_RST}"
+        echo -e "${C_RED}${L_ErrInput}${C_RST}"
     done
 }
 
@@ -173,8 +173,8 @@ read_selection() {
 while true; do
     case $STEP in
         1) # Выбор источника
-            SOURCE=""; show_header "${L[Step1_Title]}" 1
-            echo " 1. ${L[Step1_OW]}"; echo " 2. ${L[Step1_IW]}"
+            SOURCE=""; show_header "${L_Step1_Title}" 1
+            echo " 1. ${L_Step1_OW}"; echo " 2. ${L_Step1_IW}"
             read_selection 2 false; sel=$?
             if [ $sel -eq 1 ]; then
                 SOURCE="OpenWrt"; BASE_URL="https://downloads.openwrt.org"; REPO_URL="https://github.com/openwrt/openwrt.git"
@@ -184,8 +184,8 @@ while true; do
             LAST_STEP=1; ((STEP++))
             ;;
         2) # Выбор релиза
-            RELEASE=""; show_header "${L[Step2_Title]} ($SOURCE)" 2
-            echo -e "${L[Step2_Fetch]}"
+            RELEASE=""; show_header "${L_Step2_Title} ($SOURCE)" 2
+            echo -e "${L_Step2_Fetch}"
             html=$(curl -s "$BASE_URL/releases/")
             # Парсинг ссылок вида "23.05.0/" или "snapshots/"
             releases=($(echo "$html" | grep -oE 'href="([0-9]{2}\.[0-9]{2}\.[^"/]+/|snapshots/)"' | sed -E 's/href="([^"/]+)\/?"/\1/' | sort -rV | uniq))
@@ -195,7 +195,7 @@ while true; do
             RELEASE="${releases[$((idx-1))]}"; LAST_STEP=2; ((STEP++))
             ;;
         3) # Выбор Target
-            TARGET=""; show_header "${L[Step3_Title]}" 3
+            TARGET=""; show_header "${L_Step3_Title}" 3
             [ "$RELEASE" == "snapshots" ] && t_url="$BASE_URL/snapshots/targets/" || t_url="$BASE_URL/releases/$RELEASE/targets/"
             html=$(curl -s "$t_url")
             targets=($(echo "$html" | grep -oE 'href="([^"\./ ]+/)"' | sed 's/href="//;s/\/"//' | grep -vE 'backups|kmodindex|parent'))
@@ -214,7 +214,7 @@ while true; do
                 [ "$LAST_STEP" -eq 5 ] && { ((STEP--)); continue; }
                 SUBTARGET="${subtargets[0]:-generic}"; LAST_STEP=4; ((STEP++)); continue
             else
-                show_header "${L[Step4_Title]}" 4
+                show_header "${L_Step4_Title}" 4
                 for i in "${!subtargets[@]}"; do printf " %2d. %s\n" "$((i+1))" "${subtargets[$i]}"; done
                 read_selection "${#subtargets[@]}"; idx=$?
                 if [ $idx -eq 255 ]; then ((STEP--)); continue; fi
@@ -222,11 +222,11 @@ while true; do
             fi
             ;;
         5) # Модель и Пакеты
-            MODEL_ID=""; MODEL_NAME=""; show_header "${L[Step5_Title]}" 5
+            MODEL_ID=""; MODEL_NAME=""; show_header "${L_Step5_Title}" 5
             FINAL_URL="${FINAL_BASE_URL}${SUBTARGET}/"
             p_json=$(curl -s "${FINAL_URL}profiles.json")
             if [ -z "$p_json" ] || [ "$p_json" == "null" ]; then 
-                echo -e "${C_RED}${L[Step5_Err]}${C_RST}"; sleep 2; ((STEP--)); continue; 
+                echo -e "${C_RED}${L_Step5_Err}${C_RST}"; sleep 2; ((STEP--)); continue; 
             fi
             
             # Получаем ID профилей
@@ -259,13 +259,13 @@ while true; do
             LAST_STEP=5; ((STEP++))
             ;;
         6) # Финализация
-            show_header "${L[Step6_Title]}" 6
+            show_header "${L_Step6_Title}" 6
             folder_html=$(curl -s "$FINAL_URL")
             ib_file=$(echo "$folder_html" | grep -oE '(openwrt|immortalwrt)-imagebuilder-[^"]+\.tar\.(xz|zst)' | head -n 1)
             if [ -n "$ib_file" ]; then
                 IB_URL="${FINAL_URL}${ib_file}"
                 if [ "$SOURCE" == "ImmortalWrt" ]; then
-                    echo -e "${C_YEL}${L[Step6_Mirror]}${C_RST}\n 1. PKU (mirrors.pku.edu.cn)\n 2. SJTU (mirrors.sjtug.sjtu.edu.cn)\n 3. Official\n 4. KyaruCloud (CDN)"
+                    echo -e "${C_YEL}${L_Step6_Mirror}${C_RST}\n 1. PKU (mirrors.pku.edu.cn)\n 2. SJTU (mirrors.sjtug.sjtu.edu.cn)\n 3. Official\n 4. KyaruCloud (CDN)"
                     read -p "Choice (1-4) [1]: " m_sel
                     case "${m_sel:-1}" in
                         2) IB_URL="${IB_URL/downloads.immortalwrt.org/mirrors.sjtug.sjtu.edu.cn/immortalwrt}" ;;
@@ -274,10 +274,10 @@ while true; do
                         *) IB_URL="${IB_URL/downloads.immortalwrt.org/mirrors.pku.edu.cn/immortalwrt}" ;;
                     esac
                 fi
-            else echo -e "${C_RED}${L[Step6_ErrIB]}${C_RST}"; read; ((STEP--)); continue; fi
+            else echo -e "${C_RED}${L_Step6_ErrIB}${C_RST}"; read; ((STEP--)); continue; fi
 
-            echo -e "${C_GRY}${L[Step6_DefPkgs]}\n$DEF_PKGS\n${C_RST}"
-            echo -ne "${C_YEL}${L[Step6_AddPkgs]}: ${C_RST}"
+            echo -e "${C_GRY}${L_Step6_DefPkgs}\n$DEF_PKGS\n${C_RST}"
+            echo -ne "${C_YEL}${L_Step6_AddPkgs}: ${C_RST}"
             read -r input_pkgs
             [ "$(echo "$input_pkgs" | tr '[:upper:]' '[:lower:]')" == "z" ] && { STEP=6; ((STEP--)); continue; }
             
@@ -315,14 +315,14 @@ while true; do
             def_name="${mod_clean}_${ver_clean}_${src_short}_full"
 
             while true; do
-                echo -ne "\n${C_GRY}${L[Step6_FileName]} [$def_name]: ${C_RST}"
+                echo -ne "\n${C_GRY}${L_Step6_FileName} [$def_name]: ${C_RST}"
                 read -r input_name
                 [ "$(echo "$input_name" | tr '[:upper:]' '[:lower:]')" == "z" ] && { STEP=6; ((STEP--)); continue 2; }
                 [ -z "$input_name" ] && profile_name="$def_name" || profile_name=$(echo "$input_name" | tr '[:upper:]' '[:lower:]' | sed -E 's/[[:space:]\-\.]+/_/g;s/[^a-z0-9_]//g')
                 conf_path="$PROFILES_DIR/$profile_name.conf"
                 if [ -f "$conf_path" ]; then
-                    echo -e " ${C_YEL}${L[Step6_Exists]}${C_RST}"
-                    read -p " ${L[Step6_Overwrite]} (y/n) [n]: " ovr
+                    echo -e " ${C_YEL}${L_Step6_Exists}${C_RST}"
+                    read -p " ${L_Step6_Overwrite} (y/n) [n]: " ovr
                     [[ "$ovr" == "y" ]] || continue
                 fi
                 break
@@ -385,12 +385,12 @@ CONFIG_TARGET_${TARGET}_${SUBTARGET}=y
 CONFIG_TARGET_${TARGET}_${SUBTARGET}_DEVICE_${MODEL_ID}=y'
 
 EOF
-            echo -e "\n${C_GRN}[OK] ${L[Step6_Saved]} $conf_path${C_RST}"
-            echo -e "\n${L[FinalAction]}"
+            echo -e "\n${C_GRN}[OK] ${L_Step6_Saved} $conf_path${C_RST}"
+            echo -e "\n${L_FinalAction}"
             read -r final_act
             [[ "$(echo "$final_act" | xargs)" == "0" ]] && exit 0
             STEP=1
             ;;
     esac
 done
-# checksum:MD5=ce1590c881c51e96e8e922ba8d20141d
+# checksum:MD5=4beca3941a75c666eebb96ddd9b553c2

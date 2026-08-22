@@ -24,8 +24,7 @@ decode_file() {
 
     if [ -f "$target" ]; then
         if [ -n "$hash" ] && [ "$hash" != "unknown" ]; then
-            actual_hash=$(md5sum "$target" | cut -d' ' -f1)
-            actual_hash="${actual_hash,,}"
+            actual_hash=$(md5sum "$target" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
             if [ "$actual_hash" = "$hash" ]; then
                 return 0
             fi
@@ -55,8 +54,7 @@ decode_file() {
     fi
 
     if [ -n "$hash" ] && [ "$hash" != "unknown" ]; then
-        actual_hash=$(md5sum "$tmp" | cut -d' ' -f1)
-        actual_hash="${actual_hash,,}"
+        actual_hash=$(md5sum "$tmp" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
         if [ "$actual_hash" != "$hash" ]; then
             rm -f "$tmp"
             echo "[ERROR] Checksum mismatch: $target"

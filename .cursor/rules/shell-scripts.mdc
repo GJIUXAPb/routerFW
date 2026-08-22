@@ -27,7 +27,13 @@ FORCE_LANG="AUTO"  # AUTO | RU | EN override
 Dictionary is loaded from unified `.env` files (`system/lang/ru.env` / `system/lang/en.env`).
 Format: `KEY={C_VAL}value{C_RST}` — neutral pseudo-format, no quotes, `{C_*}` placeholders.
 Loader: `load_lang()` function — `while read` loop + `${val//\{C_VAL\}/$C_VAL}` substitutions, `printf -v` to set globals.
-`${SYS_LANG,,}` lowercases the lang code for filename matching. Fallback to `en.env` if file missing.
+Lang code is lowercased for filename matching via `to_lower()` helper (`tr '[:upper:]' '[:lower:]'`). Fallback to `en.env` if file missing.
+
+## Bash 3.2 Compatibility (macOS)
+
+macOS ships bash 3.2 — never use bash 4+ features:
+- No `${var,,}` / `${var^^}` case modification. Use `to_lower()` / `to_upper()` helpers (`printf '%s' "$1" | tr ...`).
+- No associative arrays, no `readarray -d`, no negative substring offsets.
 
 ## Key Variables
 
