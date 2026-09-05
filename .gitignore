@@ -35,3 +35,6 @@ nw_test
 nl_test
 
 GEMINI.md
+
+.DS_Store
+profiles/zz*
